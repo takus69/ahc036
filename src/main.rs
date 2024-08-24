@@ -18,6 +18,7 @@ struct Solver {
     score: usize,
     lt: usize,
     rng: StdRng,
+    match_rate: f64,
 }
 
 impl Solver {
@@ -45,8 +46,9 @@ impl Solver {
 
         let seed: [u8; 32] = [0; 32];
         let rng = StdRng::from_seed(seed);
+        let match_rate: f64 = 0.0;
 
-        Solver { n, m, t, la, lb, g, t_list, xy, a, b, ans, score, lt, rng }
+        Solver { n, m, t, la, lb, g, t_list, xy, a, b, ans, score, lt, rng, match_rate }
     }
 
     fn optimize_a(&mut self) {
@@ -86,6 +88,25 @@ impl Solver {
             }
             prev = now;
         }
+
+        // 配列Aとpathの一致率が一番よくなるように最適化する
+        let mut from = 0;
+        let t_list = self.t_list.clone();
+        let mut path: Vec<usize> = Vec::new();
+        for to in t_list.iter() {
+            let pathes = self.bfs(from, *to, 1);
+            path.extend(pathes[0].clone());
+            from = *to;
+        }
+        let mut match_cnt = 0;
+        let mut all_cnt = 0;
+        for i in 0..path.len() {
+            let target = path[i..(i+self.lb).min(path.len())].to_vec();
+            let (min_i, max_i) = self.r#match(&target, &a);
+            match_cnt += max_i - min_i + 1;
+            all_cnt += target.len();
+        }
+        self.match_rate = match_cnt as f64 / all_cnt as f64;
 
         println!("# a: {:?}", &a);
         self.a = a;
@@ -145,6 +166,7 @@ impl Solver {
             
             // 複数の経路から最適な経路を選択する
             let pathes = self.bfs(from, *to, 10);
+            self.lt += pathes[0].len()-1;  // 理想的な値は一番短い経路から取得
             let mut opt_path_i = 0;
             let mut opt_switch_cnt = usize::MAX;
             for (i, path) in pathes.iter().enumerate() {
@@ -175,17 +197,15 @@ impl Solver {
                 self.r#move(p);
             }
             from = *to;
-            self.lt += path.len()-1;
         }
     }
 
-    fn switch(&mut self, target: &[usize]) -> (usize, usize, usize) {
+    fn r#match(&self, target: &[usize], a: &[usize]) -> (usize, usize) {
         let mut min_i = usize::MAX;
         let mut max_i = 0;
         let mut candidates = vec![(min_i, max_i)];
         for t in target.iter() {
-            // let index = self.a.iter().position(|&x| x == *t).unwrap();
-            let indices: Vec<usize> = self.a.iter().enumerate().filter(|(_, &x)| x == *t).map(|(i, _)| i).collect();
+            let indices: Vec<usize> = a.iter().enumerate().filter(|(_, &x)| x == *t).map(|(i, _)| i).collect();
             let mut tmp: Vec<(usize, usize)> = Vec::new();
             for (min_i, max_i) in candidates.iter() {
                 for index in indices.iter() {
@@ -200,6 +220,11 @@ impl Solver {
             if tmp.is_empty() { break; } else { candidates = tmp; }
         }
         (min_i, max_i) = candidates[0];
+        (min_i, max_i)
+    }
+
+    fn switch(&mut self, target: &[usize]) -> (usize, usize, usize) {
+        let (min_i, max_i) = self.r#match(target, &self.a);
         let l = max_i - min_i + 1;
         let s_a = min_i;
         let s_b = 0;
@@ -227,7 +252,7 @@ impl Solver {
         for a in self.ans.iter() {
             println!("{}", a);
         }
-        eprintln!("{{ \"score\": {}, \"lt_lb\": {} }}", self.score, (self.lt-1)/self.lb+1);
+        eprintln!("{{ \"score\": {}, \"lt_lb\": {}, \"match_rate\": {} }}", self.score, (self.lt-1)/self.lb+1, self.match_rate);
     }
 }
 
