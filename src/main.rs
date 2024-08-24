@@ -14,6 +14,7 @@ struct Solver {
     b: Vec<usize>,
     ans: Vec<String>,
     score: usize,
+    lt: usize,
 }
 
 impl Solver {
@@ -37,23 +38,9 @@ impl Solver {
         let b = vec![usize::MAX; n];
         let ans: Vec<String> = Vec::new();
         let score = 0;
+        let lt = 0;
 
-        Solver { n, m, t, la, lb, g, t_list, xy, a, b, ans, score }
-    }
-
-    fn dfs(&self, from: &usize, to: &usize, path: &mut Vec<usize>, visited: &mut Vec<bool>) -> bool {
-        if visited[*from] { return false; }
-        path.push(*from);
-        if from == to { return true; }
-        visited[*from] = true;
-        for next in self.g.get(from).unwrap().iter() {
-            if self.dfs(next, to, path, visited) {
-                return true;
-            }
-        }
-
-        path.pop();
-        false
+        Solver { n, m, t, la, lb, g, t_list, xy, a, b, ans, score, lt }
     }
 
     fn bfs(&self, from: usize, to: usize) -> Vec<usize> {
@@ -89,12 +76,9 @@ impl Solver {
     fn solve(&mut self) {
         let mut from = 0;
         for to in self.t_list.iter() {
-            // let mut visited = vec![false; self.n];
-            // let mut path: Vec<usize> = Vec::new();
-
-            // self.dfs(from, to, &mut path, &mut visited);  // 最短経路を探す
             println!("# from: {}, to: {}", from, to);
             let path = self.bfs(from, *to);
+            self.lt += path.len()-1;
             for p in path[1..].iter() {
                 self.ans.push(format!("s {} {} {}", 1, p, 0));
                 self.score += 1;
@@ -110,7 +94,7 @@ impl Solver {
         for a in self.ans.iter() {
             println!("{}", a);
         }
-        eprintln!("{{ \"score\": {} }}", self.score);
+        eprintln!("{{ \"score\": {}, \"lt_lb\": {} }}", self.score, (self.lt-1)/self.lb+1);
     }
 }
 
