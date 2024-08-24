@@ -43,6 +43,36 @@ impl Solver {
         Solver { n, m, t, la, lb, g, t_list, xy, a, b, ans, score, lt }
     }
 
+    fn optimize_a(&mut self) {
+        let mut a: Vec<usize> = Vec::new();
+        let mut visited: Vec<bool> = vec![false; self.n];
+        let mut now = 0;
+        let mut next = 0;
+        while a.len() < self.n {
+            now = next;
+            a.push(now);
+            visited[now] = true;
+            for v in self.g.get(&now).unwrap().iter() {
+                if !visited[*v] {
+                    next = *v;
+                    break;
+                }
+            }
+            if next == now {
+                for (i, vi) in visited.iter().enumerate() {
+                    if !vi {
+                        next = i;
+                    }
+                }
+            }
+        }
+        while a.len() < self.la {
+            a.push(0);
+        }
+
+        self.a = a;
+    }
+
     fn bfs(&self, from: usize, to: usize) -> Vec<usize> {
         let mut prev: Vec<usize> = vec![usize::MAX; self.n];
         let mut que: VecDeque<usize> = VecDeque::new();
@@ -77,6 +107,7 @@ impl Solver {
     fn solve(&mut self) {
         let mut from = 0;
         let t_list = self.t_list.clone();
+        self.optimize_a();
         for to in t_list.iter() {
             println!("# from: {}, to: {}", from, to);
             let path = self.bfs(from, *to);
@@ -113,7 +144,7 @@ impl Solver {
         self.b[s_b..(s_b+l)].clone_from_slice(&self.a[s_a..(s_a+l)]); 
         self.ans.push(format!("s {} {} {}", l, s_a, s_b));
         self.score += 1;
-
+        println!("# target: {:?}, b: {:?}", target, self.b);
     }
 
     fn can_move(&self, p: &usize) -> bool {
