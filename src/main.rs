@@ -1,5 +1,7 @@
 use proconio::input;
 use std::collections::{HashMap, VecDeque};
+use rand::{Rng, SeedableRng};
+use rand::rngs::StdRng;
 
 struct Solver {
     n: usize,
@@ -15,6 +17,7 @@ struct Solver {
     ans: Vec<String>,
     score: usize,
     lt: usize,
+    rng: StdRng,
 }
 
 impl Solver {
@@ -40,14 +43,17 @@ impl Solver {
         let score = 0;
         let lt = 0;
 
-        Solver { n, m, t, la, lb, g, t_list, xy, a, b, ans, score, lt }
+        let seed: [u8; 32] = [0; 32];
+        let rng = StdRng::from_seed(seed);
+
+        Solver { n, m, t, la, lb, g, t_list, xy, a, b, ans, score, lt, rng }
     }
 
     fn optimize_a(&mut self) {
         let mut a: Vec<usize> = Vec::new();
         let mut visited: Vec<bool> = vec![false; self.n];
-        let mut now = 0;
         let mut next = 0;
+        let mut now = next;
         while a.len() < self.n {
             now = next;
             a.push(now);
@@ -66,10 +72,22 @@ impl Solver {
                 }
             }
         }
+        let mut prev = now;
         while a.len() < self.la {
-            a.push(0);
+            now = next;
+            a.push(now);
+            let list = self.g.get(&now).unwrap();
+            if list.len() > 1 {
+                let i = self.rng.gen_range(0..list.len());
+                next = list[i];
+            }
+            if list.len() == 1 || next == prev {
+                next = self.rng.gen_range(0..self.n);
+            }
+            prev = now;
         }
 
+        println!("# a: {:?}", &a);
         self.a = a;
     }
 
@@ -121,22 +139,29 @@ impl Solver {
             }
             from = *to;
         }
-
     }
 
     fn switch(&mut self, target: Vec<usize>) {
         let mut min_i = usize::MAX;
         let mut max_i = 0;
+        let mut candidates = vec![(min_i, max_i)];
         for t in target.iter() {
-            let index = self.a.iter().position(|&x| x == *t).unwrap();
-            let dist = max_i.max(index) - min_i.min(index) + 1;
-            if dist > self.lb {
-                break;
-            } else {
-                min_i = min_i.min(index);
-                max_i = max_i.max(index);
+            // let index = self.a.iter().position(|&x| x == *t).unwrap();
+            let indices: Vec<usize> = self.a.iter().enumerate().filter(|(_, &x)| x == *t).map(|(i, _)| i).collect();
+            let mut tmp: Vec<(usize, usize)> = Vec::new();
+            for (min_i, max_i) in candidates.iter() {
+                for index in indices.iter() {
+                    let dist = max_i.max(index) - min_i.min(index) + 1;
+                    if dist > self.lb {
+                        continue;
+                    } else {
+                        tmp.push((*min_i.min(index), *max_i.max(index)));
+                    }
+                }
             }
+            if tmp.is_empty() { break; } else { candidates = tmp; }
         }
+        (min_i, max_i) = candidates[0];
         let l = max_i - min_i + 1;
         let s_a = min_i;
         let s_b = 0;
