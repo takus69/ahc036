@@ -91,7 +91,8 @@ impl Solver {
         self.a = a;
     }
 
-    fn bfs(&self, from: usize, to: usize) -> Vec<Vec<usize>> {
+    fn bfs(&self, from: usize, to: usize, max_cnt: usize) -> Vec<Vec<usize>> {
+        let mut pathes: Vec<Vec<usize>> = Vec::new();
         let mut prev: Vec<usize> = vec![usize::MAX; self.n];
         let mut que: VecDeque<usize> = VecDeque::new();
         let mut visited: Vec<bool> = vec![false; self.n];
@@ -99,7 +100,16 @@ impl Solver {
         visited[from] = true;
         while !que.is_empty() {
             let u = que.pop_back().unwrap();
-            if u == to { break; }
+            if u == to {
+                let path = reconstruct(from, to, &prev);
+                pathes.push(path);
+                if pathes.len() >= max_cnt {
+                    break;
+                } else {
+                    visited[to] = false;
+                    continue;
+                }
+            }
             for v in self.g.get(&u).unwrap().iter() {
                 if visited[*v] { continue; }
                 que.push_front(*v);
@@ -109,17 +119,21 @@ impl Solver {
         }
 
         // 経路復元
-        let mut path: Vec<usize> = Vec::new();
-        path.push(to);
-        let mut next = to;
-        while next != from {
-            next = prev[next];
-            path.push(next);
-        }
-        path.pop();
-        path.reverse();
+        fn reconstruct(from: usize, to: usize, prev: &Vec<usize>) -> Vec<usize> {
+            let mut path: Vec<usize> = Vec::new();
+            path.push(to);
+            let mut next = to;
+            while next != from {
+                next = prev[next];
+                path.push(next);
+            }
+            path.pop();
+            path.reverse();
 
-        vec![path]
+            path
+        }
+
+        pathes
     }
 
     fn solve(&mut self) {
@@ -130,7 +144,7 @@ impl Solver {
             println!("# from: {}, to: {}", from, to);
             
             // 複数の経路から最適な経路を選択する
-            let pathes = self.bfs(from, *to);
+            let pathes = self.bfs(from, *to, 10);
             let mut opt_path_i = 0;
             let mut opt_switch_cnt = usize::MAX;
             for (i, path) in pathes.iter().enumerate() {
@@ -264,5 +278,15 @@ mod tests {
         let (l, s_a, s_b) = solver.switch(&[3, 0, 2, 4]);
         solver.switch_op(l, s_a, s_b);
         assert_eq!(solver.b, [0, 1, 2, 3]);
+    }
+
+    fn test_bfs() {
+        let mut solver = setup();
+        let pathes = solver.bfs(0, 1, 2);
+        assert_eq!(pathes.len(), 2);
+        assert_eq!(pathes[0], [1, 0, 3]);
+        assert_eq!(pathes[1], [1, 2, 3]);
+        let pathes = solver.bfs(0, 1, 3);
+        assert_eq!(pathes.len(), 2);
     }
 }
