@@ -1,5 +1,5 @@
 use proconio::input;
-use std::collections::{HashMap, VecDeque};
+use std::collections::{HashMap, VecDeque, BinaryHeap};
 use rand::{Rng, SeedableRng};
 use rand::rngs::StdRng;
 
@@ -51,7 +51,20 @@ impl Solver {
         Solver { n, m, t, la, lb, g, t_list, xy, a, b, ans, score, lt, rng, match_rate }
     }
 
+    fn match_rate(&self, a: &Vec<usize>, path: &Vec<usize>) -> f64 {
+        let mut match_cnt = 0;
+        let mut all_cnt = 0;
+        for i in 0..path.len() {
+            let target = path[i..(i+self.lb).min(path.len())].to_vec();
+            let (min_i, max_i) = self.r#match(&target, &a);
+            match_cnt += max_i - min_i + 1;
+            all_cnt += target.len();
+        }
+        match_cnt as f64 / all_cnt as f64
+    }
+
     fn optimize_a(&mut self) {
+        // 都市の道に沿って配列Aを設定
         let mut a: Vec<usize> = Vec::new();
         let mut visited: Vec<bool> = vec![false; self.n];
         let mut next = 0;
@@ -95,18 +108,62 @@ impl Solver {
         let mut path: Vec<usize> = Vec::new();
         for to in t_list.iter() {
             let pathes = self.bfs(from, *to, 1);
-            path.extend(pathes[0].clone());
+            path.extend(pathes[0][1..pathes[0].len()].to_vec());
             from = *to;
         }
-        let mut match_cnt = 0;
-        let mut all_cnt = 0;
+        
+        // 配列Aとpathの一致率を算出
+        self.match_rate = self.match_rate(&a, &path);
+        println!("# match_rate: {}", self.match_rate);
+
+        // pathに対するLB範囲の出現数を算出
+        let mut freq: Vec<Vec<usize>> = vec![vec![0; self.n]; self.n];
         for i in 0..path.len() {
-            let target = path[i..(i+self.lb).min(path.len())].to_vec();
-            let (min_i, max_i) = self.r#match(&target, &a);
-            match_cnt += max_i - min_i + 1;
-            all_cnt += target.len();
+            let t1 = path[i];
+            for j in 1..self.lb {
+                if i+j == path.len() { break; }
+                let t2 = path[i+j];
+                freq[t1][t2] += 1;
+                freq[t2][t1] += 1;
+            }
         }
-        self.match_rate = match_cnt as f64 / all_cnt as f64;
+        // 優先度付きキューで、出現数が多い都市を順に配列Aに追加していく
+        let mut heaps: Vec<BinaryHeap<(usize, usize)>> = vec![BinaryHeap::new(); self.n];
+        for i in 0..self.n {
+            for (j, cnt) in freq[i].iter().enumerate() {
+                if i == j || cnt == &0 { continue; }
+                heaps[i].push((*cnt, j));
+            }
+        }
+        println!("# heaps: {:?}", heaps);
+
+        let mut added: Vec<bool> = vec![false; self.n];
+        let mut no_add: Vec<(usize, usize)> = Vec::new();
+        let mut a: Vec<usize> = Vec::new();
+        let mut now = 0;
+        let mut pre = 0;
+        a.push(now);
+        added[now] = true;
+
+        while a.len() < self.la {
+            if let Some((_, i)) = heaps[now].pop() {
+                now = i;
+            } else {
+                now += 1;
+                now %= self.n;
+            }
+            if a.len() < self.n && added[now] {
+                no_add.push((pre, now));
+                continue;
+            }
+            a.push(now);
+            added[now] = true;
+            pre = now;
+        }
+        self.match_rate = self.match_rate(&a, &path);
+        println!("# match_rate: {}", self.match_rate);
+
+        println!("# path: {}, lb: {}", path.len(), self.lb);
 
         println!("# a: {:?}", &a);
         self.a = a;
