@@ -64,44 +64,6 @@ impl Solver {
     }
 
     fn optimize_a(&mut self) {
-        // 都市の道に沿って配列Aを設定
-        let mut a: Vec<usize> = Vec::new();
-        let mut visited: Vec<bool> = vec![false; self.n];
-        let mut next = 0;
-        let mut now = next;
-        while a.len() < self.n {
-            now = next;
-            a.push(now);
-            visited[now] = true;
-            for v in self.g.get(&now).unwrap().iter() {
-                if !visited[*v] {
-                    next = *v;
-                    break;
-                }
-            }
-            if next == now {
-                for (i, vi) in visited.iter().enumerate() {
-                    if !vi {
-                        next = i;
-                    }
-                }
-            }
-        }
-        let mut prev = now;
-        while a.len() < self.la {
-            now = next;
-            a.push(now);
-            let list = self.g.get(&now).unwrap();
-            if list.len() > 1 {
-                let i = self.rng.gen_range(0..list.len());
-                next = list[i];
-            }
-            if list.len() == 1 || next == prev {
-                next = self.rng.gen_range(0..self.n);
-            }
-            prev = now;
-        }
-
         // 配列Aとpathの一致率が一番よくなるように最適化する
         let mut from = 0;
         let t_list = self.t_list.clone();
@@ -111,10 +73,6 @@ impl Solver {
             path.extend(pathes[0][1..pathes[0].len()].to_vec());
             from = *to;
         }
-        
-        // 配列Aとpathの一致率を算出
-        self.match_rate = self.match_rate(&a, &path);
-        println!("# match_rate: {}", self.match_rate);
 
         // pathに対するLB範囲の出現数を算出
         let mut freq: Vec<Vec<usize>> = vec![vec![0; self.n]; self.n];
@@ -137,35 +95,66 @@ impl Solver {
         }
         println!("# heaps: {:?}", heaps);
 
-        let mut added: Vec<bool> = vec![false; self.n];
-        let mut no_add: Vec<(usize, usize)> = Vec::new();
+        // 都市の道に沿って配列Aを設定
         let mut a: Vec<usize> = Vec::new();
-        let mut now = 0;
-        let mut pre = 0;
-        a.push(now);
-        added[now] = true;
-
-        while a.len() < self.la {
-            if let Some((_, i)) = heaps[now].pop() {
-                now = i;
-            } else {
-                now += 1;
-                now %= self.n;
-            }
-            if a.len() < self.n && added[now] {
-                no_add.push((pre, now));
-                continue;
-            }
+        let mut visited: Vec<bool> = vec![false; self.n];
+        let mut next = 0;
+        let mut now = next;
+        while a.len() < self.n {
+            now = next;
             a.push(now);
-            added[now] = true;
-            pre = now;
+            visited[now] = true;
+            let f = &freq[now];
+            let mut max_freq = 0;
+            let mut opt_v = 0;
+            for v in self.g.get(&now).unwrap().iter() {
+                if !visited[*v] && f[*v] > max_freq {
+                    max_freq = f[*v];
+                    opt_v = *v;
+                }
+            }
+            if max_freq > 0 {
+                next = opt_v;
+            }
+            if next == now {
+                for (i, vi) in visited.iter().enumerate() {
+                    if !vi {
+                        next = i;
+                    }
+                }
+            }
         }
+        // 入らなかったインデックスを入れる
+        let mut cnt = 0;
+        for (i, v) in visited.iter().enumerate() {
+            if !v {
+                a.push(i);
+                cnt += 1;
+            }
+        }
+        let mut prev = now;
+        while a.len() < self.la {
+            now = next;
+            a.push(now);
+            let list = self.g.get(&now).unwrap();
+            if list.len() > 1 {
+                let i = self.rng.gen_range(0..list.len());
+                next = list[i];
+            }
+            if list.len() == 1 || next == prev {
+                next = self.rng.gen_range(0..self.n);
+            }
+            prev = now;
+        }
+
+        // 配列Aとpathの一致率を算出
         self.match_rate = self.match_rate(&a, &path);
         println!("# match_rate: {}", self.match_rate);
 
         println!("# path: {}, lb: {}", path.len(), self.lb);
 
         println!("# a: {:?}", &a);
+        assert_eq!(a.len(), self.la, "Length of a is not equal LA. a: {}, LA: {}", a.len(), self.la);
         self.a = a;
     }
 
