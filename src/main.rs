@@ -19,6 +19,7 @@ struct Solver {
     lt: usize,
     rng: StdRng,
     match_rate: f64,
+    switch_match_cnt: Vec<usize>,
 }
 
 impl Solver {
@@ -47,8 +48,9 @@ impl Solver {
         let seed: [u8; 32] = [0; 32];
         let rng = StdRng::from_seed(seed);
         let match_rate: f64 = 0.0;
+        let switch_match_cnt: Vec<usize> = Vec::new();
 
-        Solver { n, m, t, la, lb, g, t_list, xy, a, b, ans, score, lt, rng, match_rate }
+        Solver { n, m, t, la, lb, g, t_list, xy, a, b, ans, score, lt, rng, match_rate, switch_match_cnt }
     }
 
     fn match_rate(&self, a: &Vec<usize>, path: &Vec<usize>) -> f64 {
@@ -56,8 +58,8 @@ impl Solver {
         let mut all_cnt = 0;
         for i in 0..path.len() {
             let target = path[i..(i+self.lb).min(path.len())].to_vec();
-            let (min_i, max_i) = self.r#match(&target, &a);
-            match_cnt += max_i - min_i + 1;
+            let (_, _, cnt) = self.r#match(&target, a);
+            match_cnt += cnt;
             all_cnt += target.len();
         }
         match_cnt as f64 / all_cnt as f64
@@ -78,7 +80,7 @@ impl Solver {
         let mut freq: Vec<Vec<usize>> = vec![vec![0; self.n]; self.n];
         for i in 0..path.len() {
             let t1 = path[i];
-            for j in 1..self.lb {
+            for j in 1..2 {  // self.lb {
                 if i+j == path.len() { break; }
                 let t2 = path[i+j];
                 freq[t1][t2] += 1;
@@ -93,7 +95,6 @@ impl Solver {
                 heaps[i].push((*cnt, j));
             }
         }
-        println!("# heaps: {:?}", heaps);
 
         // 都市の道に沿って配列Aを設定
         let mut a: Vec<usize> = Vec::new();
@@ -153,7 +154,6 @@ impl Solver {
 
         println!("# path: {}, lb: {}", path.len(), self.lb);
 
-        println!("# a: {:?}", &a);
         assert_eq!(a.len(), self.la, "Length of a is not equal LA. a: {}, LA: {}", a.len(), self.la);
         self.a = a;
     }
@@ -221,7 +221,7 @@ impl Solver {
                 for (i, p) in path.iter().enumerate() {
                     let target = path[i..path.len().min(i+self.lb)].to_vec();
                     if !self.can_move(p, &b) {
-                        let (l, s_a, s_b) = self.switch(&target);
+                        let (l, s_a, s_b, _) = self.switch(&target);
                         b[s_b..(s_b+l)].clone_from_slice(&self.a[s_a..(s_a+l)]);
                         switch_cnt += 1;
                     }
@@ -236,8 +236,9 @@ impl Solver {
             for (i, p) in path.iter().enumerate() {
                 let target = path[i..path.len().min(i+self.lb)].to_vec();
                 if !self.can_move(p, &self.b) {
-                    let (l, s_a, s_b) = self.switch(&target);
+                    let (l, s_a, s_b, match_cnt) = self.switch(&target);
                     self.switch_op(l, s_a, s_b);
+                    self.switch_match_cnt.push(match_cnt);
                     println!("# target: {:?}, b: {:?}", target, self.b);
                 }
                 self.r#move(p);
@@ -246,9 +247,10 @@ impl Solver {
         }
     }
 
-    fn r#match(&self, target: &[usize], a: &[usize]) -> (usize, usize) {
+    fn r#match(&self, target: &[usize], a: &[usize]) -> (usize, usize, usize) {
         let mut min_i = usize::MAX;
         let mut max_i = 0;
+        let mut match_cnt = 0;
         let mut candidates = vec![(min_i, max_i)];
         for t in target.iter() {
             let indices: Vec<usize> = a.iter().enumerate().filter(|(_, &x)| x == *t).map(|(i, _)| i).collect();
@@ -263,18 +265,21 @@ impl Solver {
                     }
                 }
             }
-            if tmp.is_empty() { break; } else { candidates = tmp; }
+            if tmp.is_empty() { break; } else {
+                candidates = tmp;
+                match_cnt += 1;
+            }
         }
         (min_i, max_i) = candidates[0];
-        (min_i, max_i)
+        (min_i, max_i, match_cnt)
     }
 
-    fn switch(&mut self, target: &[usize]) -> (usize, usize, usize) {
-        let (min_i, max_i) = self.r#match(target, &self.a);
+    fn switch(&mut self, target: &[usize]) -> (usize, usize, usize, usize) {
+        let (min_i, max_i, match_cnt) = self.r#match(target, &self.a);
         let l = max_i - min_i + 1;
         let s_a = min_i;
         let s_b = 0;
-        (l, s_a, s_b)
+        (l, s_a, s_b, match_cnt)
     }
 
     fn switch_op(&mut self, l: usize, s_a: usize, s_b: usize) {
@@ -298,7 +303,8 @@ impl Solver {
         for a in self.ans.iter() {
             println!("{}", a);
         }
-        eprintln!("{{ \"score\": {}, \"lt_lb\": {}, \"match_rate\": {} }}", self.score, (self.lt-1)/self.lb+1, self.match_rate);
+        println!("# switch_match_cnt: {:?}", self.switch_match_cnt);
+        eprintln!("{{ \"M\": {}, \"LA\": {}, \"LB\": {}, \"score\": {}, \"lt_lb\": {}, \"match_rate\": {} }}", self.m, self.la, self.lb, self.score, (self.lt-1)/self.lb+1, self.match_rate);
     }
 }
 

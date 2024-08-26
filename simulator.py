@@ -20,10 +20,13 @@ def main(i):
     # print(i, 'start')
     r = run(i)
     t = round(time.time()-start, 4)
+    M = r['M']
+    LA = r['LA']
+    LB = r['LB']
     score = r['score']
     lt_lb = r['lt_lb']
     match_rate = r['match_rate']
-    data = [i, score, lt_lb, match_rate, t]
+    data = [i, M, LA, LB, score, lt_lb, match_rate, t]
     print('\r', 'end', i, end='')
     # print(i, 'end')
     return data
@@ -44,7 +47,7 @@ if __name__ == '__main__':
         data = [pool.apply_async(main, (i,)) for i in range(trial)]
         result = [d.get() for d in data]
     print()
-    df = pd.DataFrame(result, columns=['i', 'score', 'lt_lb', 'match_rate', 'time'])
+    df = pd.DataFrame(result, columns=['i', 'M', 'LA', 'LB', 'score', 'lt_lb', 'match_rate', 'time'])
     score = np.mean(df['score'])
     print(f"score: {format(int(score*50), ',')}, score mean: {format(int(score), ',')}")
     df.to_csv('result.csv', index=False)
