@@ -20,6 +20,7 @@ struct Solver {
     rng: StdRng,
     match_rate: f64,
     switch_match_cnt: Vec<usize>,
+    all_cnt: usize,
 }
 
 impl Solver {
@@ -49,8 +50,9 @@ impl Solver {
         let rng = StdRng::from_seed(seed);
         let match_rate: f64 = 0.0;
         let switch_match_cnt: Vec<usize> = Vec::new();
+        let all_cnt = 0;
 
-        Solver { n, m, t, la, lb, g, t_list, xy, a, b, ans, score, lt, rng, match_rate, switch_match_cnt }
+        Solver { n, m, t, la, lb, g, t_list, xy, a, b, ans, score, lt, rng, match_rate, switch_match_cnt, all_cnt }
     }
 
     fn match_rate(&self, a: &Vec<usize>, path: &Vec<usize>) -> f64 {
@@ -239,6 +241,7 @@ impl Solver {
                     let (l, s_a, s_b, match_cnt) = self.switch(&target);
                     self.switch_op(l, s_a, s_b);
                     self.switch_match_cnt.push(match_cnt);
+                    self.all_cnt += self.lb;
                     println!("# target: {:?}, b: {:?}", target, self.b);
                 }
                 self.r#move(p);
@@ -304,7 +307,8 @@ impl Solver {
             println!("{}", a);
         }
         println!("# switch_match_cnt: {:?}", self.switch_match_cnt);
-        eprintln!("{{ \"M\": {}, \"LA\": {}, \"LB\": {}, \"score\": {}, \"lt_lb\": {}, \"match_rate\": {} }}", self.m, self.la, self.lb, self.score, (self.lt-1)/self.lb+1, self.match_rate);
+        let match_rate  =self.switch_match_cnt.iter().sum::<usize>() as f64 / self.all_cnt as f64;
+        eprintln!("{{ \"M\": {}, \"LA\": {}, \"LB\": {}, \"score\": {}, \"lt_lb\": {}, \"pred_match_rate\": {}, \"actual_match_rate\": {} }}", self.m, self.la, self.lb, self.score, (self.lt-1)/self.lb+1, self.match_rate, match_rate);
     }
 }
 
@@ -352,9 +356,10 @@ mod tests {
     fn test_switch() {
         let mut solver = setup();
         assert_eq!(solver.a, [0, 1, 2, 3, 4, 5, 6]);
-        let (l, s_a, s_b) = solver.switch(&[3, 0, 2, 4]);
+        let (l, s_a, s_b, match_cnt) = solver.switch(&[3, 0, 2, 4]);
         solver.switch_op(l, s_a, s_b);
         assert_eq!(solver.b, [0, 1, 2, 3]);
+        assert_eq!(match_cnt, 3);
     }
 
     fn test_bfs() {
