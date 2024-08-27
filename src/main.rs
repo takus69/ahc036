@@ -155,7 +155,9 @@ impl Solver {
         self.match_rate = self.a_opt.match_rate();
         println!("# match_rate: {}", self.match_rate);
 
-        // 山登りで最適化
+        // 配列Aを最適化
+        self.a_opt.optimize();
+        self.a.clone_from(&self.a_opt.a);
 
         // 最適化後の配列Aとpathの一致率を算出
         self.match_rate = self.a_opt.match_rate();
@@ -316,7 +318,11 @@ struct AOptimizer {
     path: Vec<usize>,
     a: Vec<usize>,
     path_freq: Vec<HashMap<usize, usize>>,
+    all_path_freq: Vec<usize>,
+    match_cnt: Vec<HashMap<usize, usize>>,
+    eval_freq: Vec<usize>,
     eval: f64,
+    rng: StdRng,
 }
 
 impl AOptimizer {
@@ -324,20 +330,25 @@ impl AOptimizer {
         let path: Vec<usize> = Vec::new();
         let a: Vec<usize> = Vec::new();
         let path_freq: Vec<HashMap<usize, usize>> = Vec::new();
-        let eval = 0.0;
-        AOptimizer { n, la, lb, path, a, path_freq, eval }
+        let all_path_freq: Vec<usize> = Vec::new();
+        let match_cnt: Vec<HashMap<usize, usize>> = Vec::new();
+        let eval_freq: Vec<usize> = Vec::new();
+        let eval = 1.0;
+        let seed: [u8; 32] = [0; 32];
+        let rng = StdRng::from_seed(seed);
+        AOptimizer { n, la, lb, path, a, path_freq, all_path_freq, match_cnt, eval_freq, eval, rng }
     }
     
     fn init(&mut self, path: &Vec<usize>, a: &Vec<usize>) {
-        self.path = path.clone();
-        self.a = a.clone();
+        self.path.clone_from(path);
+        self.a.clone_from(a);
         self.a.extend(self.a[0..(2*self.lb)].to_vec());  // 配列Aをそのままで1週できるように拡張する
 
-        let (path_freq, all_path_freq) = self.get_path_freq();  // pathにおける各都市の隣接都市情報を取得
+        self.get_path_freq();  // pathにおける各都市の隣接都市情報を取得
 
         // 配列aのLB範囲に存在する経路の隣接都市の個数
-        let mut match_cnt: Vec<HashMap<usize, usize>> = vec![HashMap::new(); self.n];
-        let mut eval_freq: Vec<usize> = vec![0; self.n];
+        self.match_cnt = vec![HashMap::new(); self.n];
+        self.eval_freq = vec![1; self.n];
         for t in 0..self.n {
             let indices: Vec<usize> = self.a[0..self.la].iter().enumerate().filter(|(_, &x)| x == t).map(|(i, _)| i).collect();
             for i in indices.iter() {
@@ -346,45 +357,129 @@ impl AOptimizer {
                 for j in from..to {
                     let aj = self.a[j];
                     if aj == t { continue; }
-                    if path_freq[t].contains_key(&aj) {
-                        let e = match_cnt[t].entry(aj).or_insert(0);
+                    if self.path_freq[t].contains_key(&aj) {
+                        let e = self.match_cnt[t].entry(aj).or_insert(0);
                         *e += 1;
                         if *e == 1 {
-                            eval_freq[t] += path_freq[t].get(&aj).unwrap();
+                            self.eval_freq[t] += self.path_freq[t].get(&aj).unwrap();
+                        }
+                        let e = self.match_cnt[aj].entry(t).or_insert(0);
+                        *e += 1;
+                        if *e == 1 {
+                            self.eval_freq[aj] += self.path_freq[aj].get(&t).unwrap();
                         }
                     }
                 }
             }
         }
 
-        let path_set: HashSet<usize> = path.clone().into_iter().collect();
+        // evalの初期計算
+        let mut path_set: HashSet<usize> = path.clone().into_iter().collect();
+        path_set.insert(0);
+        let mut eval: f64 = 1.0;
+        for pi in path_set.iter() {
+            eval *= self.eval_freq[*pi] as f64 / self.all_path_freq[*pi] as f64;
+        }
+        println!("# eval: {}", eval);
+        self.eval = eval;
+
 
     }
 
-    fn get_path_freq(&self) -> (Vec<HashMap<usize, usize>>, Vec<usize>) {
-        let mut freq: Vec<HashMap<usize, usize>> = vec![HashMap::new(); self.n];
-        for i in 0..(self.path.len()-1) {
-            let t1 = self.path[i];
-            let t2 = self.path[i+1];
-            let e = freq[t1].entry(t2).or_insert(0);  // 隣接する都市の出現数
-            *e += 1;
-            let e = freq[t2].entry(t1).or_insert(0);  // 隣接する都市の出現数
-            *e += 1;
-        }
-
-        // pathに存在しない都市はall_freqの初期値1, 存在する都市は初期値0
-        let path_set: HashSet<usize> = self.path.clone().into_iter().collect();
-        let mut all_freq: Vec<usize> = vec![1; self.n];
-        for p in path_set.iter() {
-            all_freq[*p] = 0;
-        }
-        for i in 0..self.n {
-            for (_, cnt) in freq[i].iter() {
-                all_freq[i] += cnt;
+    fn optimize(&mut self) {
+        println!("# optimize start");
+        let mut path: Vec<usize> = vec![0];  // 最初の都市を追加
+        path.extend(&self.path);
+        let path_set: HashSet<usize> = path.clone().into_iter().collect();
+        let mut match_cnt = self.match_cnt.clone();
+        let mut eval_freq = self.eval_freq.clone();
+        let mut pre_match_cnt = match_cnt.clone();
+        let mut pre_eval_freq = eval_freq.clone();
+        let mut pre_eval = self.eval;
+        let mut a = self.a.clone();
+        for _ in 0..10 {
+            // path[i](ai) -> bi に変更
+            let i = self.rng.gen_range(0..self.la);
+            let ai = a[i];
+            let bi = self.rng.gen_range(0..self.n);
+            println!("# i: {}, ai => bi: {} => {}", i, ai, bi);
+            if ai == bi { continue; }
+            let from = if i < self.lb { 0 } else { i-self.lb+1 };
+            let to = (i+self.lb-1).min(path.len()-1);
+            for j in from..=to {
+                if i == j { continue; }  // 変更対象
+                let cj = path[j];
+                // aiを除外した処理
+                if match_cnt[cj].contains_key(&ai) {
+                    let e = match_cnt[cj].entry(ai).or_insert(0);
+                    *e -= 1;
+                    if *e == 0 {
+                        match_cnt[cj].remove(&ai);
+                        eval_freq[cj] -= self.path_freq[cj].get(&ai).unwrap();
+                    }
+                    let e = match_cnt[ai].entry(cj).or_insert(0);
+                    *e -= 1;
+                    if *e == 0 {
+                        match_cnt[ai].remove(&cj);
+                        eval_freq[ai] -= self.path_freq[ai].get(&cj).unwrap();
+                    }
+                }
+                // biを追加した処理
+                if self.path_freq[cj].contains_key(&bi) {
+                    let e = match_cnt[cj].entry(bi).or_insert(0);
+                    *e += 1;
+                    if *e == 1 {
+                        eval_freq[cj] += self.path_freq[cj].get(&bi).unwrap();
+                    }
+                    let e = match_cnt[bi].entry(cj).or_insert(0);
+                    *e += 1;
+                    if *e == 1 {
+                        eval_freq[bi] += self.path_freq[bi].get(&cj).unwrap();
+                    }
+                }
+            }
+            let mut eval:f64 = 1.0;
+            for pi in path_set.iter() {
+                eval *= self.eval_freq[*pi] as f64 / self.all_path_freq[*pi] as f64;
+            }
+            println!("# eval {} => {}", pre_eval, eval);
+            if eval > pre_eval {
+                println!("# eval up: {} => {}", pre_eval, eval);
+                pre_eval = eval;
+                pre_match_cnt = match_cnt.clone();
+                pre_eval_freq = eval_freq.clone();
+                a[i] = bi;
+            } else {
+                if eval < pre_eval {
+                    println!("# eval down");
+                }
+                match_cnt = pre_match_cnt.clone();
+                eval_freq = pre_eval_freq.clone();
             }
         }
+        self.a = a;
+    }
 
-        (freq, all_freq)
+    fn get_path_freq(&mut self) {
+        self.path_freq = vec![HashMap::new(); self.n];
+        self.all_path_freq = vec![1; self.n];
+        let mut path: Vec<usize> = vec![0];  // 最初の都市を追加
+        path.extend(&self.path);
+        for i in 0..(path.len()-1) {
+            let t1 = path[i];
+            let t2 = path[i+1];
+            let e = self.path_freq[t1].entry(t2).or_insert(0);  // 隣接する都市の出現数
+            *e += 1;
+            let e = self.path_freq[t2].entry(t1).or_insert(0);  // 隣接する都市の出現数
+            *e += 1;
+        }
+
+        // pathに存在しない都市はall_freqの初期値1
+        for i in 0..self.n {
+            for (_, cnt) in self.path_freq[i].iter() {
+                self.all_path_freq[i] += cnt;
+            }
+        }
     }
 
     fn r#match(&self, target: &[usize]) -> (usize, usize, usize) {
@@ -475,12 +570,33 @@ mod tests {
 
     #[test]
     fn test_a_opt() {
-        let (n, la, lb) = (6, 6, 3);
-        let path = vec![0, 1, 3, 1, 2, 4, 5, 1];
+        let (n, la, lb) = (7, 6, 3);
+        let path = vec![1, 3, 1, 2, 4, 5, 1];  // 最初の都市は含まれない
         let a = vec![0, 1, 2, 3, 4, 5];
         let mut a_opt = AOptimizer::new(n, la, lb);
         a_opt.init(&path, &a);
         let match_rate = a_opt.match_rate();
-        assert_eq!(match_rate, 16.0/21.0);
+        assert_eq!(match_rate, 14.0/18.0);
+
+        a_opt.get_path_freq();  // 二度実行しても副作用なし(initで呼ばれている)
+        let (freq, all_freq) = (&a_opt.path_freq, &a_opt.all_path_freq);
+        println!("freq: {:?}", freq);
+        println!("all_freq: {:?}", all_freq);
+        assert_eq!(freq[0].get(&1), Some(&1));
+        assert_eq!(freq[0].get(&0), None);
+        assert_eq!(freq[0].get(&2), None);
+        assert_eq!(all_freq[0], 2);
+        assert_eq!(freq[1].get(&0), Some(&1));
+        assert_eq!(freq[1].get(&1), None);
+        assert_eq!(freq[1].get(&2), Some(&1));
+        assert_eq!(freq[1].get(&3), Some(&2));
+        assert_eq!(freq[1].get(&4), None);
+        assert_eq!(freq[1].get(&5), Some(&1));
+        assert_eq!(all_freq[1], 6);
+        assert_eq!(all_freq[6], 1);
+
+        a_opt.optimize();
+        assert!(false);
     }
+
 }
