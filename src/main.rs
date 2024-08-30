@@ -73,100 +73,24 @@ impl Solver {
         path
     }
 
-    fn optimize_a(&mut self) {
-        // 配列Aとpathの一致率が一番よくなるように最適化する
-        let path = self.get_path();  // 最適な経路を取得
-
-        // pathに対するLB範囲の出現数を算出
-        let mut freq: Vec<Vec<usize>> = vec![vec![0; self.n]; self.n];
-        for i in 0..path.len() {
-            let t1 = path[i];
-            for j in 1..2 {  // self.lb {
-                if i+j == path.len() { break; }
-                let t2 = path[i+j];
-                freq[t1][t2] += 1;
-                freq[t2][t1] += 1;
-            }
-        }
-
-       // 優先度付きキューで、出現数が多い都市を順に配列Aに追加していく
-        let mut heaps: Vec<BinaryHeap<(usize, usize)>> = vec![BinaryHeap::new(); self.n];
-        for i in 0..self.n {
-            for (j, cnt) in freq[i].iter().enumerate() {
-                if i == j || cnt == &0 { continue; }
-                heaps[i].push((*cnt, j));
-            }
-        }
-
-        // 都市の道に沿って配列Aを設定
-        let mut a: Vec<usize> = Vec::new();
-        let mut visited: Vec<bool> = vec![false; self.n];
-        let mut next = 0;
-        let mut now = next;
-        while a.len() < self.n {
-            now = next;
-            a.push(now);
-            visited[now] = true;
-            let f = &freq[now];
-            let mut max_freq = 0;
-            let mut opt_v = 0;
-            for v in self.g.get(&now).unwrap().iter() {
-                if !visited[*v] && f[*v] > max_freq {
-                    max_freq = f[*v];
-                    opt_v = *v;
-                }
-            }
-            if max_freq > 0 {
-                next = opt_v;
-            }
-            if next == now {
-                for (i, vi) in visited.iter().enumerate() {
-                    if !vi {
-                        next = i;
-                    }
-                }
-            }
-        }
-        // 入らなかったインデックスを入れる
-        let mut cnt = 0;
-        for (i, v) in visited.iter().enumerate() {
-            if !v {
-                a.push(i);
-                cnt += 1;
-            }
-        }
-        let mut prev = now;
-        while a.len() < self.la {
-            now = next;
-            a.push(now);
-            let list = self.g.get(&now).unwrap();
-            if list.len() > 1 {
-                let i = self.rng.gen_range(0..list.len());
-                next = list[i];
-            }
-            if list.len() == 1 || next == prev {
-                next = self.rng.gen_range(0..self.n);
-            }
-            prev = now;
-        }
-
+    fn optimize_a(&mut self, path: &Vec<usize>) {
         // 配列Aとpathの一致率を算出
-        self.a_opt.init(&path, &a);
+        self.a_opt.init(path);
         self.match_rate = self.a_opt.match_rate();
         println!("# match_rate: {}", self.match_rate);
+        println!("# path: {:?}", path);
 
         // 配列Aを最適化
-        self.a_opt.optimize(10000);
+        // self.a_opt.optimize(1000);
         self.a.clone_from(&self.a_opt.a);
+        assert_eq!(self.a.len(), self.la, "Length of a is not equal LA. a: {}, LA: {}", self.a.len(), self.la);
 
         // 最適化後の配列Aとpathの一致率を算出
         self.match_rate = self.a_opt.match_rate();
         println!("# match_rate: {}", self.match_rate);
 
         println!("# path: {}, lb: {}", path.len(), self.lb);
-
-        assert_eq!(a.len(), self.la, "Length of a is not equal LA. a: {}, LA: {}", a.len(), self.la);
-        self.a = a;
+        println!("# a: {:?}", self.a);
     }
 
     fn bfs(&self, from: usize, to: usize, max_cnt: usize) -> Vec<Vec<usize>> {
@@ -215,48 +139,22 @@ impl Solver {
     }
 
     fn solve(&mut self) {
-        let mut from = 0;
-        let t_list = self.t_list.clone();
-        self.optimize_a();
-        for to in t_list.iter() {
-            println!("# from: {}, to: {}", from, to);
-            
-            // 複数の経路から最適な経路を選択する
-            let pathes = self.bfs(from, *to, 1);
-            self.lt += pathes[0].len();  // 理想的な値は一番短い経路から取得
-            let mut opt_path_i = 0;
-            let mut opt_switch_cnt = usize::MAX;
-            for (j, path) in pathes.iter().enumerate() {
-                let mut switch_cnt = 0;
-                let mut b = self.b.clone();
-                for (i, p) in path[1..].iter().enumerate() {
-                    let target = path[i..path.len().min(i+self.lb)].to_vec();
-                    if !self.can_move(p, &b) {
-                        let (l, s_a, s_b, _) = self.switch(&target);
-                        b[s_b..(s_b+l)].clone_from_slice(&self.a[s_a..(s_a+l)]);
-                        switch_cnt += 1;
-                    }
-                }
-                if opt_switch_cnt > switch_cnt {
-                    opt_switch_cnt = switch_cnt;
-                    opt_path_i = j;
-                }
+        let path = self.get_path();
+        self.optimize_a(&path);
+
+        // 最適な経路で実施
+        self.lt = path.len();
+        println!("# path: {:?}", path);
+        for (i, p) in path.iter().enumerate() {
+            let target = path[i..path.len().min(i+self.lb)].to_vec();
+            if !self.can_move(p, &self.b) {
+                let (l, s_a, s_b, match_cnt) = self.switch(&target);
+                self.switch_op(l, s_a, s_b);
+                self.switch_match_cnt.push(match_cnt);
+                self.all_cnt += self.lb;
+                println!("# target: {:?}, b: {:?}", target, self.b);
             }
-            // 最適な経路で実施
-            let path = &pathes[opt_path_i];
-            println!("# path: {:?}", path);
-            for (i, p) in path.iter().enumerate() {
-                let target = path[i..path.len().min(i+self.lb)].to_vec();
-                if !self.can_move(p, &self.b) {
-                    let (l, s_a, s_b, match_cnt) = self.switch(&target);
-                    self.switch_op(l, s_a, s_b);
-                    self.switch_match_cnt.push(match_cnt);
-                    self.all_cnt += self.lb;
-                    println!("# target: {:?}, b: {:?}", target, self.b);
-                }
-                self.r#move(p);
-            }
-            from = *to;
+            self.r#move(p);
         }
     }
 
@@ -324,6 +222,7 @@ struct AOptimizer {
     eval: f64,
     rng: StdRng,
     must_a: HashMap<usize, usize>,
+    g: HashMap<usize, Vec<usize>>,
 }
 
 impl AOptimizer {
@@ -338,15 +237,15 @@ impl AOptimizer {
         let seed: [u8; 32] = [0; 32];
         let rng = StdRng::from_seed(seed);
         let must_a: HashMap<usize, usize> = HashMap::new();
-        AOptimizer { n, la, lb, path, a, path_freq, all_path_freq, match_cnt, eval_freq, eval, rng, must_a }
+        let g: HashMap<usize, Vec<usize>> = HashMap::new();
+        AOptimizer { n, la, lb, path, a, path_freq, all_path_freq, match_cnt, eval_freq, eval, rng, must_a, g }
     }
     
-    fn init(&mut self, path: &Vec<usize>, a: &Vec<usize>) {
+    fn init(&mut self, path: &Vec<usize>) {
         self.path.clone_from(path);
-        self.a.clone_from(a);
-        // self.a.extend(self.a[0..(2*self.lb)].to_vec());  // 配列Aをそのままで1週できるように拡張する
-
         self.get_path_freq();  // pathにおける各都市の隣接都市情報を取得
+        self.init_a();
+
 
         // 配列aのLB範囲に存在する経路の隣接都市の個数
         self.match_cnt = vec![HashMap::new(); self.n];
@@ -376,7 +275,7 @@ impl AOptimizer {
         for ai in path_set.iter() {
             self.must_a.insert(*ai, 0);
         }
-        for ai in a.iter() {
+        for ai in self.a.iter() {
             if !path_set.contains(ai) { continue; }
             let e = self.must_a.get_mut(ai).unwrap();
             *e += 1;
@@ -392,11 +291,168 @@ impl AOptimizer {
 
     }
 
+    fn init_a(&mut self) {
+        // 配列Aとpathの一致率が一番よくなるように最適化する
+        let path = &self.path;
+        let path_set: HashSet<usize> = path.clone().into_iter().collect();  // 最初の都市がない経路から作成
+
+        // pathに対するLB範囲の出現数を算出
+        let mut freq: Vec<Vec<usize>> = vec![vec![0; self.n]; self.n];
+        for i in 0..path.len() {
+            let t1 = path[i];
+            for j in 1..2 {  // self.lb {
+                if i+j == path.len() { break; }
+                let t2 = path[i+j];
+                freq[t1][t2] += 1;
+                freq[t2][t1] += 1;
+            }
+        }
+
+        // 優先度付きキューで、出現数が多い都市を順に配列Aに追加していく
+        let mut heaps: Vec<BinaryHeap<(usize, usize)>> = vec![BinaryHeap::new(); self.n];
+        for i in 0..self.n {
+            for (j, cnt) in freq[i].iter().enumerate() {
+                if i == j || cnt == &0 { continue; }
+                heaps[i].push((*cnt, j));
+            }
+        }
+
+        // 都市の道に沿って配列Aを設定
+        let mut a: Vec<usize> = Vec::new();
+        let mut visited: Vec<bool> = vec![false; self.n];
+        let mut next = 0;
+        let mut now = next;
+        while a.len() < self.n {
+            now = next;
+            a.push(now);
+            visited[now] = true;
+            let f = &freq[now];
+            let mut max_freq = 0;
+            let mut opt_v = 0;
+            for (v, _) in self.path_freq[now].iter() {
+                if !visited[*v] && f[*v] > max_freq {
+                    max_freq = f[*v];
+                    opt_v = *v;
+                }
+            }
+            if max_freq > 0 {
+                next = opt_v;
+            }
+            if next == now {
+                for i in path_set.iter() {
+                    if !visited[*i] {
+                        next = *i;
+                    }
+                }
+            }
+        }
+        // 入らなかったインデックスを入れる
+        for i in path_set.iter() {
+            if !visited[*i] {
+                a.push(*i);
+                next = *i;
+            }
+        }
+        let mut prev = now;
+        while a.len() < self.la {
+            now = next;
+            a.push(now);
+            let list = self.path_freq.get(now).unwrap().keys().copied().collect::<Vec<usize>>();
+            if list.len() > 1 {
+                let i = self.rng.gen_range(0..list.len());
+                next = list[i];
+            }
+            if list.len() == 1 || next == prev {
+                next = self.rng.gen_range(0..self.n);
+            }
+            prev = now;
+        }
+        
+        /*
+        // 出現回数が大きいものから追加していくための配列
+        let mut all_path_freq = self.all_path_freq.clone();
+
+        // 出現回数が多いものを順に追加
+        let mut a: Vec<usize> = Vec::new();
+        let mut visited: Vec<bool> = vec![false; self.n];
+        let mut now = 0;
+        let mut max_c = 0;
+        for (i, c) in all_path_freq.iter().enumerate() {
+            if max_c < *c {
+                max_c = *c;
+                now = i;
+            }
+        }
+        println!("# start now: {}, cnt: {}", now, max_c);
+        all_path_freq[now] -= 1;
+        let mut next = now;
+        let mut cnt: usize;
+        let mut on_lb: Vec<usize> = vec![0; self.lb];
+        let mut lb_i = 1;
+        // path_setに含まれる都市をすべて追加
+        while a.len() < path_set.len() {
+            now = next;
+            a.push(now);
+            visited[now] = true;
+            all_path_freq[now] -= 1;
+            on_lb[lb_i] = now;
+            lb_i = (lb_i + 1) % self.lb;
+            if !heaps[now].is_empty() {
+                (cnt, next) = heaps[now].pop().unwrap();
+                if !visited[next] {
+                    continue;
+                } else {
+                    heaps[now].push((cnt, next));
+                }
+            }
+            let mut max_c = 0;
+            for (i, c) in all_path_freq.iter().enumerate() {
+                if !visited[i] && max_c < *c {
+                    next = i;
+                    max_c = *c;
+                }
+            }
+        }
+
+        // 配列Aの残りを設定
+        let mut all_heaps: BinaryHeap<(usize, usize)> = BinaryHeap::new();
+        for (i, c) in all_path_freq.iter().enumerate() {
+            all_heaps.push((*c, i));
+        }
+        add_cnt = 0;
+        now = all_heaps.pop().unwrap().1;
+        next = now;
+
+        while a.len() < self.la {
+            now = next;
+            a.push(now);
+            add_cnt += 1;
+            all_path_freq[now] -= 1;
+            if all_path_freq[now] > 0 {
+                all_heaps.push((all_path_freq[now], now));
+            }
+            if !heaps[now].is_empty() && add_cnt < self.lb{
+                (_, next) = heaps[now].pop().unwrap();
+            }
+            (_, next) = all_heaps.pop().unwrap();
+        }*/
+
+        println!("heaps: {:?}", heaps);
+        for i in path_set.iter() {
+            if !a.contains(i) {
+                println!("# not found: {}", i);
+            }
+        }
+        self.a = a;
+    }
+
     fn optimize(&mut self, trial: usize) {
         println!("# optimize start");
+        println!("# a: {:?}", self.a);
         let mut path: Vec<usize> = vec![0];  // 最初の都市を追加
         path.extend(&self.path);
-        let path_set: HashSet<usize> = path.clone().into_iter().collect();
+        let path_set: HashSet<usize> = self.path.clone().into_iter().collect();  // 最初の都市がない経路から作成
+        let path_list = path_set.iter().copied().collect::<Vec<usize>>();
         let mut match_cnt = self.match_cnt.clone();
         let mut eval_freq = self.eval_freq.clone();
         let mut pre_match_cnt = match_cnt.clone();
@@ -404,46 +460,56 @@ impl AOptimizer {
         let mut pre_eval = self.eval;
         let mut a = self.a.clone();
         let mut must_a = self.must_a.clone();
-        let mut cnt = 0;
+        let mut skip_cnt = 0;
+        let mut up_cnt = 0;
+        let mut eq_cnt = 0;
         for _ in 0..trial {
             // a[i](ai) -> bi に変更
             let i = self.rng.gen_range(0..self.la);
             let ai = a[i];
-            if must_a.contains_key(&ai) && must_a.get(&ai).unwrap() == &1 { continue; }  // 必須がなくなるなら処理しない
-            let bi = self.rng.gen_range(0..self.n);
-            if must_a.contains_key(&bi) { continue; }  // 経路にないなら処理しない
-            self.change_a(i, ai, bi, &mut match_cnt, &mut eval_freq);
-            cnt += 1;
+            if must_a.contains_key(&ai) && must_a.get(&ai).unwrap() == &1 { skip_cnt+=1; continue; }  // 必須がなくなるなら処理しない
+            let j = self.rng.gen_range(0..path_list.len());
+            let b = path_list[j];
+            self.change_a(i, &a, b, &mut match_cnt, &mut eval_freq);
             let mut eval:f64 = 1.0;
             for pi in path_set.iter() {
                 eval *= eval_freq[*pi] as f64 / self.all_path_freq[*pi] as f64;
             }
-            if eval > pre_eval {
-                println!("# i: {}, ai => b: {} => {}", i, ai, bi);
-                println!("# eval up: {} => {}", pre_eval, eval);
+            if eval >= pre_eval {
+                if eval == pre_eval {
+                    eq_cnt += 1;
+                } else {
+                    println!("# i: {}, ai => b: {} => {}", i, ai, b);
+                    println!("# eval up: {} => {}", pre_eval, eval);
+                    up_cnt += 1;
+                }
                 pre_eval = eval;
                 pre_match_cnt = match_cnt.clone();
                 pre_eval_freq = eval_freq.clone();
-                *must_a.get_mut(&ai).unwrap() -= 1;
-                *must_a.get_mut(&bi).unwrap() += 1;
-                a[i] = bi;
+                if must_a.contains_key(&ai) {
+                    println!("# must_a, ai: {}", ai);
+                    *must_a.get_mut(&ai).unwrap() -= 1;
+                    *must_a.get_mut(&b).unwrap() += 1;
+                }
+                a[i] = b;
             } else {
                 match_cnt = pre_match_cnt.clone();
                 eval_freq = pre_eval_freq.clone();
             }
         }
-        println!("cnt: {}", cnt);
+        println!("# trial: {}, up_cnt: {}, eq_cnt: {}, skip_cnt: {}", trial, up_cnt, eq_cnt, skip_cnt);
         self.a = a;
     }
 
-    fn change_a(&mut self, i: usize, ai: usize, b: usize, match_cnt: &mut Vec<HashMap<usize, usize>>, eval_freq: &mut Vec<usize>) {
+    fn change_a(&mut self, i: usize, a: &Vec<usize>, b: usize, match_cnt: &mut Vec<HashMap<usize, usize>>, eval_freq: &mut Vec<usize>) {
+        let ai = a[i];
         if ai == b { return; }
         let from = self.la + i - self.lb + 1;
         let to = self.la + i + self.lb - 1;
         for j in from..=to {
             let j = j % self.la;
             if i == j { continue; }  // 変更対象
-            let cj = self.a[j];
+            let cj = a[j];
             // aiを除外した処理
             if match_cnt[cj].contains_key(&ai) {
                 let e = match_cnt[cj].entry(ai).or_insert(0);
@@ -594,7 +660,7 @@ mod tests {
         assert_eq!(path.len(), 20);
         assert_eq!(a.len(), la);
         let mut a_opt = AOptimizer::new(n, la, lb);
-        a_opt.init(&path, &a);
+        a_opt.init(&path);
 
         assert_eq!(a_opt.all_path_freq, [4, 2, 1, 6, 4, 3, 3, 2, 3, 2]);  // 初期値1
         let freq = &a_opt.path_freq;
@@ -612,7 +678,7 @@ mod tests {
         let mut eval_freq = a_opt.eval_freq.clone();
         assert_eq!(a_opt.eval_freq, [2, 2, 1, 3, 3, 2, 3, 2, 2, 2]);  // 初期値1
 
-        a_opt.change_a(2, 2, 3, &mut match_cnt, &mut eval_freq);
+        a_opt.change_a(2, &a, 3, &mut match_cnt, &mut eval_freq);
         assert_eq!(match_cnt[0].get(&1), Some(&1));
         assert_eq!(match_cnt[0].get(&3), Some(&1));
         assert_eq!(match_cnt[0].get(&2), None);
@@ -624,6 +690,11 @@ mod tests {
         assert_eq!(eval_freq[4], 3);
 
         a_opt.optimize(100);
+
+        let path = vec![1, 3, 0, 3, 4, 3, 0, 3, 4, 5, 6, 7, 6, 5, 4, 3, 8, 9, 8, 3];  // 最初の都市は含まれない
+        let a = vec![0, 1, 2, 3, 4, 9, 8, 7, 6, 5, 7, 6];
+        a_opt.init(&path);
+        a_opt.change_a(7, &a, 0, &mut match_cnt, &mut eval_freq);
     }
 
     #[test]
@@ -632,7 +703,8 @@ mod tests {
         let path = vec![1, 3, 1, 2, 4, 5, 1];  // 最初の都市は含まれない
         let a = vec![0, 1, 2, 3, 4, 5];
         let mut a_opt = AOptimizer::new(n, la, lb);
-        a_opt.init(&path, &a);
+        a_opt.init(&path);
+        a_opt.a = a;
         let match_rate = a_opt.match_rate();
         assert_eq!(match_rate, 14.0/18.0);
 

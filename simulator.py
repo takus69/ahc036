@@ -48,6 +48,7 @@ if __name__ == '__main__':
         data = [pool.apply_async(main, (i,)) for i in range(trial)]
         result = [d.get() for d in data]
     print()
+    # '''
     df = pd.DataFrame(result, columns=['i', 'M', 'LA', 'LB', 'score', 'lt_lb', 'pred_match_rate', 'actual_match_rate', 'time'])
     score = np.mean(df['score'])
     print(f"score: {format(int(score*50), ',')}, score mean: {format(int(score), ',')}")
