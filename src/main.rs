@@ -58,17 +58,27 @@ impl Solver {
     }
 
     fn get_path(&self) -> Vec<usize> {
-        // 最適な経路を取得する
+        // 経路の最適化
+        let mut t_pathes: Vec<Vec<Vec<usize>>> = vec![];
         let mut from = 0;
         let t_list = self.t_list.clone();
-        let mut path: Vec<usize> = Vec::new();
         for to in t_list.iter() {
-            let pathes = self.bfs(from, *to, 1);
-            assert_ne!(pathes[0][0], from);
-            assert_eq!(pathes[0][pathes[0].len()-1], *to);
-            path.extend(pathes[0].to_vec());
+            let pathes = self.bfs(from, *to);
+            println!("# bfs, from: {}, to: {}, pathes len: {}", from, to, pathes.len());
+            t_pathes.push(pathes);
             from = *to;
         }
+
+        // 最短経路を取得
+        let mut path: Vec<usize> = Vec::new();
+        for i in 0..self.t {
+            path.extend(t_pathes[i][0].to_vec());
+        }
+
+        // path_setを最適化
+        let mut path_set: HashSet<usize> = path.clone().into_iter().collect();
+        println!("# path_set len: {}", path_set.len());
+        
 
         path
     }
@@ -93,46 +103,53 @@ impl Solver {
         println!("# a: {:?}", self.a);
     }
 
-    fn bfs(&self, from: usize, to: usize, max_cnt: usize) -> Vec<Vec<usize>> {
-        let mut pathes: Vec<Vec<usize>> = Vec::new();
-        let mut prev: Vec<usize> = vec![usize::MAX; self.n];
-        let mut que: VecDeque<usize> = VecDeque::new();
+    fn bfs(&self, from: usize, to: usize) -> Vec<Vec<usize>> {
+        let mut pathes: Vec<Vec<usize>> = vec![];
+
+        // 1つ目追加
+        let mut que: VecDeque<Vec<usize>> = VecDeque::new();
         let mut visited: Vec<bool> = vec![false; self.n];
-        que.push_front(from);
-        while !que.is_empty() {
-            let u = que.pop_back().unwrap();
-            if u == to {
-                let path = reconstruct(from, to, &prev);
-                pathes.push(path);
-                if pathes.len() >= max_cnt {
-                    break;
-                } else {
-                    visited[to] = false;
-                    prev[to] = usize::MAX;
-                    continue;
+        visited[from] = true;
+        que.push_back(vec![from]);
+
+        while let Some(path) = que.pop_front() {
+            let &last = path.last().unwrap();
+            if last == to {
+                pathes.push(path[1..path.len()].to_vec());
+                break;
+            } else {
+                for &neighbor in self.g.get(&last).unwrap().iter() {
+                    if !visited[neighbor] {
+                        visited[neighbor] = true;
+                        let mut new_path = path.clone();
+                        new_path.push(neighbor);
+                        que.push_back(new_path);
+                    }
                 }
-            }
-            for v in self.g.get(&u).unwrap().iter() {
-                if visited[*v] { continue; }
-                que.push_front(*v);
-                visited[*v] = true;
-                prev[*v] = u;
             }
         }
 
-        // 経路復元
-        fn reconstruct(from: usize, to: usize, prev: &Vec<usize>) -> Vec<usize> {
-            let mut path: Vec<usize> = Vec::new();
-            path.push(to);
-            let mut next = to;
-            while next != from {
-                next = prev[next];
-                path.push(next);
-            }
-            path.pop();  // fromを経路から削除
-            path.reverse();
+        // 2つ目追加
+        let mut que: VecDeque<Vec<usize>> = VecDeque::new();
+        let mut visited: Vec<bool> = vec![false; self.n];
+        visited[from] = true;
+        que.push_back(vec![from]);
 
-            path
+        while let Some(path) = que.pop_front() {
+            let &last = path.last().unwrap();
+            if last == to {
+                pathes.push(path[1..path.len()].to_vec());
+                break;
+            } else {
+                for &neighbor in self.g.get(&last).unwrap().iter().rev() {
+                    if !visited[neighbor] {
+                        visited[neighbor] = true;
+                        let mut new_path = path.clone();
+                        new_path.push(neighbor);
+                        que.push_back(new_path);
+                    }
+                }
+            }
         }
 
         pathes
@@ -188,7 +205,8 @@ impl Solver {
             println!("{}", a);
         }
         let match_rate  =self.switch_match_cnt.iter().sum::<usize>() as f64 / self.all_cnt as f64;
-        eprintln!("{{ \"M\": {}, \"LA\": {}, \"LB\": {}, \"score\": {}, \"lt_lb\": {}, \"pred_match_rate\": {}, \"actual_match_rate\": {} }}", self.m, self.la, self.lb, self.score, (self.lt-1)/self.lb+1, self.match_rate, match_rate);
+        let mut path_set: HashSet<usize> = self.a_opt.path.clone().into_iter().collect();
+        eprintln!("{{ \"M\": {}, \"LA\": {}, \"LB\": {}, \"score\": {}, \"lt_lb\": {}, \"path_set_len\": {}, \"pred_match_rate\": {}, \"actual_match_rate\": {} }}", self.m, self.la, self.lb, self.score, (self.lt-1)/self.lb+1, path_set.len(), self.match_rate, match_rate);
     }
 }
 
@@ -598,13 +616,11 @@ mod tests {
 
     #[test]
     fn test_bfs() {
-        let mut solver = setup();
-        let pathes = solver.bfs(1, 3, 2);
+        let solver = setup();
+        let pathes = solver.bfs(1, 3);
         assert_eq!(pathes.len(), 2);
         assert_eq!(pathes[0], [0, 3]);
-        assert_eq!(pathes[1], [0, 6, 5, 4, 3]);
-        let pathes = solver.bfs(1, 3, 3);
-        assert_eq!(pathes.len(), 2);
+        assert_eq!(pathes[1], [2, 3]);
     }
 
     #[test]

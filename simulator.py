@@ -25,9 +25,10 @@ def main(i):
     LB = r['LB']
     score = r['score']
     lt_lb = r['lt_lb']
+    path_set_len = r['path_set_len']
     pred_match_rate = r['pred_match_rate']
     actual_match_rate = r['actual_match_rate']
-    data = [i, M, LA, LB, score, lt_lb, pred_match_rate, actual_match_rate, t]
+    data = [i, M, LA, LB, score, lt_lb, path_set_len, pred_match_rate, actual_match_rate, t]
     print('\r', 'end', i, end='')
     # print(i, 'end')
     return data
@@ -49,7 +50,7 @@ if __name__ == '__main__':
         result = [d.get() for d in data]
     print()
     # '''
-    df = pd.DataFrame(result, columns=['i', 'M', 'LA', 'LB', 'score', 'lt_lb', 'pred_match_rate', 'actual_match_rate', 'time'])
+    df = pd.DataFrame(result, columns=['i', 'M', 'LA', 'LB', 'score', 'lt_lb', 'path_set_len', 'pred_match_rate', 'actual_match_rate', 'time'])
     score = np.mean(df['score'])
     print(f"score: {format(int(score*50), ',')}, score mean: {format(int(score), ',')}")
     df.to_csv('result.csv', index=False)
