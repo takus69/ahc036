@@ -57,7 +57,9 @@ impl Solver {
         Solver { n, m, t, la, lb, g, t_list, xy, a, b, ans, score, lt, rng, match_rate, switch_match_cnt, all_cnt, a_opt }
     }
 
-    fn get_path(&self) -> Vec<usize> {
+    fn get_path(&mut self) -> Vec<Vec<usize>> {
+        let mut pathes: Vec<Vec<usize>> = Vec::new();
+
         // 経路の最適化
         let mut t_pathes: Vec<Vec<Vec<usize>>> = vec![];
         let mut from = 0;
@@ -73,6 +75,7 @@ impl Solver {
         for i in 0..self.t {
             path.extend(t_pathes[i][0].to_vec());
         }
+        pathes.push(path.clone());
 
         // path_setを最適化
         let path_set: HashSet<usize> = path.clone().into_iter().collect();
@@ -89,9 +92,8 @@ impl Solver {
         }
         
         println!("# befor opt_len: {}, eval: {}", opt_len, eval);
-        for i in 0..self.t {
-            let before = &t_pathes[i][0];
-            let after = &t_pathes[i][1];
+
+        fn change_path(before:  &Vec<usize>, after: &Vec<usize>, opt_len: usize, eval: f64, v_freq: &Vec<usize>) -> (bool, usize, f64, Vec<usize>) {
             let mut tmp_len = opt_len;
             let mut tmp_v_freq = v_freq.clone();
 
@@ -112,10 +114,24 @@ impl Solver {
                 if f == 0 { continue; }
                 tmp_eval += (f as f64).ln();
             }
+            let mut ret = false;
             if (opt_len > tmp_len) || (opt_len == tmp_len && eval > tmp_eval) {
-                opt_len = tmp_len;
-                v_freq = tmp_v_freq;
-                eval = tmp_eval;
+            // if eval > tmp_eval {
+                ret = true;
+            }
+            (ret, tmp_len, tmp_eval, tmp_v_freq)
+
+        }
+
+        for i in 0..self.t {
+            let before = &t_pathes[i][0];
+            let after = &t_pathes[i][1];
+
+            let ret = change_path(before, after, opt_len, eval, &v_freq);
+            if ret.0 {
+                opt_len = ret.1;
+                eval = ret.2;
+                v_freq = ret.3;
                 adop_path[i] = 1;
             }
         }
@@ -125,17 +141,53 @@ impl Solver {
         for i in 0..self.t {
             path.extend(t_pathes[i][adop_path[i]].to_vec());
         }
+        pathes.push(path);
         println!("# after opt_len: {}, eval: {}", opt_len, eval);
 
-        path
+        // 焼きなましで最適化
+        let trial = 1000;
+        let mut temperature = 0.0;
+        for i in 0..trial {
+            let i = self.rng.gen_range(0..self.t);
+            let j = (adop_path[i]+1) % 2;
+            let before = &t_pathes[i][adop_path[i]];
+            let after = &t_pathes[i][j];
+            let ret = change_path(before, after, opt_len, eval, &v_freq);
+            if ret.0 || self.rng.gen::<f64>() < temperature {
+                opt_len = ret.1;
+                eval = ret.2;
+                v_freq = ret.3;
+                adop_path[i] = j;
+            }
+            if trial % 100 == 0 {
+                temperature /= 2.0;
+            }
+        }
+        
+        // 最適化後の経路を再取得
+        let mut path: Vec<usize> = Vec::new();
+        for i in 0..self.t {
+            path.extend(t_pathes[i][adop_path[i]].to_vec());
+        }
+        pathes.push(path);
+        println!("# after2 opt_len: {}, eval: {}", opt_len, eval);
+        
+        // 1の方の経路
+        let mut path: Vec<usize> = Vec::new();
+        for i in 0..self.t {
+            path.extend(t_pathes[i][1].to_vec());
+        }
+        pathes.push(path);
+
+        pathes
     }
 
     fn optimize_a(&mut self, path: &Vec<usize>) {
         // 配列Aとpathの一致率を算出
         self.a_opt.init(path);
         self.match_rate = self.a_opt.match_rate();
-        println!("# match_rate: {}", self.match_rate);
-        println!("# path: {:?}", path);
+        // println!("# match_rate: {}", self.match_rate);
+        // println!("# path: {:?}", path);
 
         // 配列Aを最適化
         // self.a_opt.optimize(1000);
@@ -144,10 +196,10 @@ impl Solver {
 
         // 最適化後の配列Aとpathの一致率を算出
         self.match_rate = self.a_opt.match_rate();
-        println!("# match_rate: {}", self.match_rate);
+        // println!("# match_rate: {}", self.match_rate);
 
-        println!("# path: {}, lb: {}", path.len(), self.lb);
-        println!("# a: {:?}", self.a);
+        // println!("# path: {}, lb: {}", path.len(), self.lb);
+        // println!("# a: {:?}", self.a);
     }
 
     fn bfs(&self, from: usize, to: usize) -> Vec<Vec<usize>> {
@@ -203,12 +255,45 @@ impl Solver {
     }
 
     fn solve(&mut self) {
-        let path = self.get_path();
-        self.optimize_a(&path);
+        let pathes = self.get_path();
+
+        let mut opt_score = usize::MAX;
+        let mut opt_ans: Vec<String> = Vec::new();
+        let mut opt_path: Vec<usize> = Vec::new();
+        for path in pathes.iter() {
+            self.clear();
+            // 最適な経路で実施
+            self.optimize_a(path);
+            self.lt = path.len();
+            // println!("# path: {:?}", path);
+            for (i, p) in path.iter().enumerate() {
+                let target = path[i..path.len().min(i+self.lb)].to_vec();
+                if !self.can_move(p, &self.b) {
+                    let (l, s_a, s_b, match_cnt) = self.switch(&target);
+                    self.switch_op(l, s_a, s_b);
+                    self.switch_match_cnt.push(match_cnt);
+                    self.all_cnt += self.lb;
+                }
+                self.r#move(p);
+            }
+            let match_rate = self.switch_match_cnt.iter().sum::<usize>() as f64 / self.all_cnt as f64;
+            let score = self.score;
+            if opt_score > score {
+                opt_score = score;
+                opt_ans = self.ans.clone();
+                opt_path = path.clone();
+            }
+            println!("# match_rate: {}, score: {}", match_rate, score);
+        }
+        self.ans = opt_ans;
+        self.score = opt_score;
 
         // 最適な経路で実施
+        self.clear();
+        let path = &opt_path;
+        self.optimize_a(path);
         self.lt = path.len();
-        println!("# path: {:?}", path);
+        // println!("# path: {:?}", path);
         for (i, p) in path.iter().enumerate() {
             let target = path[i..path.len().min(i+self.lb)].to_vec();
             if !self.can_move(p, &self.b) {
@@ -216,10 +301,22 @@ impl Solver {
                 self.switch_op(l, s_a, s_b);
                 self.switch_match_cnt.push(match_cnt);
                 self.all_cnt += self.lb;
-                println!("# target: {:?}, b: {:?}", target, self.b);
             }
             self.r#move(p);
         }
+
+    }
+
+    fn clear(&mut self) {
+        self.b = vec![usize::MAX; self.lb];
+        self.ans = Vec::new();
+        self.score = 0;
+        self.lt = 0;
+
+        self.match_rate = 0.0;
+        self.switch_match_cnt = Vec::new();
+        self.all_cnt = 0;
+        self.a_opt = AOptimizer::new(self.n, self.la, self.lb);
     }
 
     fn switch(&mut self, target: &[usize]) -> (usize, usize, usize, usize) {
@@ -231,7 +328,7 @@ impl Solver {
     }
 
     fn switch_op(&mut self, l: usize, s_a: usize, s_b: usize) {
-        println!("# s {} {} {}", l, s_a, s_b);
+        // println!("# s {} {} {}", l, s_a, s_b);
         self.b[s_b..(s_b+l)].clone_from_slice(&self.a[s_a..(s_a+l)]); 
         self.ans.push(format!("s {} {} {}", l, s_a, s_b));
         self.score += 1;
@@ -242,7 +339,7 @@ impl Solver {
     }
     
     fn r#move(&mut self, p: &usize) {
-        println!("# m {}", p);
+        // println!("# m {}", p);
         self.ans.push(format!("m {}", p));
     }
     
@@ -251,7 +348,7 @@ impl Solver {
         for a in self.ans.iter() {
             println!("{}", a);
         }
-        let match_rate  =self.switch_match_cnt.iter().sum::<usize>() as f64 / self.all_cnt as f64;
+        let match_rate = self.switch_match_cnt.iter().sum::<usize>() as f64 / self.all_cnt as f64;
         let mut path_set: HashSet<usize> = self.a_opt.path.clone().into_iter().collect();
         eprintln!("{{ \"M\": {}, \"LA\": {}, \"LB\": {}, \"score\": {}, \"lt_lb\": {}, \"path_set_len\": {}, \"pred_match_rate\": {}, \"actual_match_rate\": {} }}", self.m, self.la, self.lb, self.score, (self.lt-1)/self.lb+1, path_set.len(), self.match_rate, match_rate);
     }
@@ -350,7 +447,7 @@ impl AOptimizer {
         for pi in path_set.iter() {
             eval *= self.eval_freq[*pi] as f64 / self.all_path_freq[*pi] as f64;
         }
-        println!("# eval: {}", eval);
+        // println!("# eval: {}", eval);
         self.eval = eval;
 
 
@@ -364,7 +461,7 @@ impl AOptimizer {
         // v9の改善
         let mut p_freq: Vec<Vec<HashMap<(usize, usize), usize>>> = vec![vec![HashMap::new(); self.lb]; self.n];  // [P][l][pre] = (cnt, Pl, l)
         println!("# path len: {}", path.len());
-        println!("# path: {:?}", path);
+        // println!("# path: {:?}", path);
         for (i, p) in path[0..(path.len()-1)].iter().enumerate() {
             let mut pre = *p;
             for l in 0..self.lb.min(path.len()-i) {
@@ -430,7 +527,7 @@ impl AOptimizer {
             a.push(opt_p);
             added[opt_p] = true;
         }
-        println!("# a: {:?}", a);
+        // println!("# a: {:?}", a);
 
         // 残りを埋める
         let mut max_freq: BinaryHeap<(usize, usize)> = BinaryHeap::new();
