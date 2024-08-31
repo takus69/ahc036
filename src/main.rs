@@ -367,6 +367,34 @@ impl AOptimizer {
         }
         println!("# a: {:?}", a);
 
+        // 残りを埋める
+        let mut max_freq: BinaryHeap<(usize, usize)> = BinaryHeap::new();
+        for p in path_set.iter() {
+            max_freq.push((*p_freq[*p][0].get(&(*p, *p)).unwrap(), *p));
+        }
+        while a.len() < self.la {
+            let (_, p) = max_freq.pop().unwrap();
+            let mut heap: BinaryHeap<(usize, usize, usize, usize)> = BinaryHeap::new();  // (cnt, pre, pl, l)
+            let mut added: Vec<bool> = vec![false; self.n];
+            heap.push((*p_freq[p][0].get(&(p, p)).unwrap(), p, p, 0));
+            let mut cnt = 0;
+            while cnt < self.lb {
+                let (_, _, pl, l) = heap.pop().unwrap();
+                if !added[pl] {
+                    a.push(pl);
+                    added[pl] = true;
+                    cnt += 1;
+                    if a.len() == self.la { break; }
+                }
+                if l == self.lb-1 { continue; }
+                for ((pre2, pl2), cnt) in p_freq[p][l+1].iter() {
+                    if pre2 != &pl && !added[*pl2] { continue; }
+                    heap.push((*cnt, pl, *pl2, l+1));
+                }
+            }
+
+        }
+
         // pathに対するLB範囲の出現数を算出
         let mut freq: Vec<Vec<usize>> = vec![vec![0; self.n]; self.n];
         for i in 0..path.len() {
