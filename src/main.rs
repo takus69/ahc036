@@ -285,8 +285,6 @@ impl Solver {
             }
             println!("# match_rate: {}, score: {}", match_rate, score);
         }
-        self.ans = opt_ans;
-        self.score = opt_score;
 
         // 最適な経路で実施
         self.clear();
@@ -349,7 +347,7 @@ impl Solver {
             println!("{}", a);
         }
         let match_rate = self.switch_match_cnt.iter().sum::<usize>() as f64 / self.all_cnt as f64;
-        let mut path_set: HashSet<usize> = self.a_opt.path.clone().into_iter().collect();
+        let path_set: HashSet<usize> = self.a_opt.path.clone().into_iter().collect();
         eprintln!("{{ \"M\": {}, \"LA\": {}, \"LB\": {}, \"score\": {}, \"lt_lb\": {}, \"path_set_len\": {}, \"pred_match_rate\": {}, \"actual_match_rate\": {} }}", self.m, self.la, self.lb, self.score, (self.lt-1)/self.lb+1, path_set.len(), self.match_rate, match_rate);
     }
 }
@@ -480,7 +478,7 @@ impl AOptimizer {
         let mut added: Vec<bool> = vec![false; self.n];
         let p = path[0];
         heap.push((*p_freq[p][0].get(&(p, p)).unwrap(), p, p, 0));
-        while a.len() < self.lb {
+        while a.len() < self.lb && !heap.is_empty() {
             let (_, _, pl, l) = heap.pop().unwrap();
             if !added[pl] {
                 a.push(pl);
@@ -540,7 +538,7 @@ impl AOptimizer {
             let mut added: Vec<bool> = vec![false; self.n];
             heap.push((*p_freq[p][0].get(&(p, p)).unwrap(), p, p, 0));
             let mut cnt = 0;
-            while cnt < self.lb {
+            while cnt < self.lb && !heap.is_empty() {
                 let (_, _, pl, l) = heap.pop().unwrap();
                 if !added[pl] {
                     a.push(pl);
