@@ -296,6 +296,77 @@ impl AOptimizer {
         let path = &self.path;
         let path_set: HashSet<usize> = path.clone().into_iter().collect();  // 最初の都市がない経路から作成
 
+        // v9の改善
+        let mut p_freq: Vec<Vec<HashMap<(usize, usize), usize>>> = vec![vec![HashMap::new(); self.lb]; self.n];  // [P][l][pre] = (cnt, Pl, l)
+        println!("# path len: {}", path.len());
+        println!("# path: {:?}", path);
+        for (i, p) in path[0..(path.len()-1)].iter().enumerate() {
+            let mut pre = *p;
+            for l in 0..self.lb.min(path.len()-i) {
+                let pl = path[i+l];
+                let e = p_freq[*p][l].entry((pre, pl)).or_insert(0);
+                *e += 1;
+                pre = pl;
+            }
+        }
+        let p = path[path.len()-1];
+        let _ = p_freq[p][0].entry((p, p)).or_insert(1);
+
+        // 配列Aの1個目を追加
+        let mut a: Vec<usize> = Vec::new();
+        let mut heap: BinaryHeap<(usize, usize, usize, usize)> = BinaryHeap::new();  // (cnt, pre, pl, l)
+        let mut added: Vec<bool> = vec![false; self.n];
+        let p = path[0];
+        heap.push((*p_freq[p][0].get(&(p, p)).unwrap(), p, p, 0));
+        while a.len() < self.lb {
+            let (_, _, pl, l) = heap.pop().unwrap();
+            if !added[pl] {
+                a.push(pl);
+                added[pl] = true;
+            }
+            if l == self.lb-1 { continue; }
+            for ((pre2, pl2), cnt) in p_freq[p][l+1].iter() {
+                if pre2 != &pl && !added[*pl2] { continue; }
+                heap.push((*cnt, pl, *pl2, l+1));
+            }
+        }
+
+        // 以降は後ろLBの範囲が最大となる、まだ追加していない都市を追加していく
+        while a.len() < path_set.len() {
+            let mut opt_rate = 0.0;
+            let mut opt_p = usize::MAX;
+            for p in 0..self.n {
+                if !path_set.contains(&p) || added[p] { continue; }
+                let mut cnt = 0;
+                let all_cnt = p_freq[p][0].get(&(p, p)).unwrap() * self.lb;
+                let mut target: HashMap<usize, (usize, usize)> = HashMap::new();  // 入っているといい都市(key: pl, value: (l, cnt)
+                for ((_, pl), c) in p_freq[p][1].iter() {
+                    target.insert(*pl, (1, *c));
+                }
+                for i in (a.len()-self.lb)..a.len() {
+                    let ai = a[i];
+                    if target.contains_key(&ai) {
+                        let (l, c) = *target.get(&ai).unwrap();
+                        cnt += c;
+                        if l == self.lb-1 { continue; }
+                        for ((pre, pl), c) in p_freq[p][l+1].iter() {
+                            if pre != &ai { continue; }
+                            let e = target.entry(*pl).or_insert((l+1, *c));
+                            e.1 += c;
+                        }
+                    }
+                }
+                let tmp = cnt as f64 / all_cnt as f64;
+                if opt_rate <= tmp {
+                    opt_rate = tmp;
+                    opt_p = p;
+                }
+            }
+            a.push(opt_p);
+            added[opt_p] = true;
+        }
+        println!("# a: {:?}", a);
+
         // pathに対するLB範囲の出現数を算出
         let mut freq: Vec<Vec<usize>> = vec![vec![0; self.n]; self.n];
         for i in 0..path.len() {
@@ -318,6 +389,7 @@ impl AOptimizer {
         }
 
         // 都市の道に沿って配列Aを設定
+        /*
         let mut a: Vec<usize> = Vec::new();
         let mut visited: Vec<bool> = vec![false; self.n];
         let mut next = 0;
@@ -353,7 +425,11 @@ impl AOptimizer {
                 next = *i;
             }
         }
-        let mut prev = now;
+        */
+        // 残りを埋める
+        let mut prev = a[a.len()-1];
+        let mut now: usize;
+        let mut next = prev;
         while a.len() < self.la {
             now = next;
             a.push(now);
@@ -368,80 +444,9 @@ impl AOptimizer {
             prev = now;
         }
         
-        /*
-        // 出現回数が大きいものから追加していくための配列
-        let mut all_path_freq = self.all_path_freq.clone();
-
-        // 出現回数が多いものを順に追加
-        let mut a: Vec<usize> = Vec::new();
-        let mut visited: Vec<bool> = vec![false; self.n];
-        let mut now = 0;
-        let mut max_c = 0;
-        for (i, c) in all_path_freq.iter().enumerate() {
-            if max_c < *c {
-                max_c = *c;
-                now = i;
-            }
-        }
-        println!("# start now: {}, cnt: {}", now, max_c);
-        all_path_freq[now] -= 1;
-        let mut next = now;
-        let mut cnt: usize;
-        let mut on_lb: Vec<usize> = vec![0; self.lb];
-        let mut lb_i = 1;
-        // path_setに含まれる都市をすべて追加
-        while a.len() < path_set.len() {
-            now = next;
-            a.push(now);
-            visited[now] = true;
-            all_path_freq[now] -= 1;
-            on_lb[lb_i] = now;
-            lb_i = (lb_i + 1) % self.lb;
-            if !heaps[now].is_empty() {
-                (cnt, next) = heaps[now].pop().unwrap();
-                if !visited[next] {
-                    continue;
-                } else {
-                    heaps[now].push((cnt, next));
-                }
-            }
-            let mut max_c = 0;
-            for (i, c) in all_path_freq.iter().enumerate() {
-                if !visited[i] && max_c < *c {
-                    next = i;
-                    max_c = *c;
-                }
-            }
-        }
-
-        // 配列Aの残りを設定
-        let mut all_heaps: BinaryHeap<(usize, usize)> = BinaryHeap::new();
-        for (i, c) in all_path_freq.iter().enumerate() {
-            all_heaps.push((*c, i));
-        }
-        add_cnt = 0;
-        now = all_heaps.pop().unwrap().1;
-        next = now;
-
-        while a.len() < self.la {
-            now = next;
-            a.push(now);
-            add_cnt += 1;
-            all_path_freq[now] -= 1;
-            if all_path_freq[now] > 0 {
-                all_heaps.push((all_path_freq[now], now));
-            }
-            if !heaps[now].is_empty() && add_cnt < self.lb{
-                (_, next) = heaps[now].pop().unwrap();
-            }
-            (_, next) = all_heaps.pop().unwrap();
-        }*/
-
-        println!("heaps: {:?}", heaps);
+        println!("# heaps: {:?}", heaps);
         for i in path_set.iter() {
-            if !a.contains(i) {
-                println!("# not found: {}", i);
-            }
+            assert!(a.contains(i), "# not found: {}", i);
         }
         self.a = a;
     }
