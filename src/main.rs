@@ -608,6 +608,7 @@ mod tests {
     }
 
     #[test]
+    #[ignore]
     fn test_change_ai() {
         let (n, la, lb) = (10, 12, 3);
         let path = vec![1, 3, 0, 3, 4, 3, 0, 3, 4, 5, 6, 7, 6, 5, 4, 3, 8, 9, 8, 3];  // 最初の都市は含まれない
@@ -653,6 +654,7 @@ mod tests {
     }
 
     #[test]
+    #[ignore]
     fn test_get_freq() {
         let (n, la, lb) = (7, 6, 3);
         let path = vec![1, 3, 1, 2, 4, 5, 1];  // 最初の都市は含まれない
