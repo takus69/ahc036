@@ -64,7 +64,6 @@ impl Solver {
         let t_list = self.t_list.clone();
         for to in t_list.iter() {
             let pathes = self.bfs(from, *to);
-            println!("# bfs, from: {}, to: {}, pathes len: {}", from, to, pathes.len());
             t_pathes.push(pathes);
             from = *to;
         }
@@ -76,9 +75,57 @@ impl Solver {
         }
 
         // path_setを最適化
-        let mut path_set: HashSet<usize> = path.clone().into_iter().collect();
-        println!("# path_set len: {}", path_set.len());
+        let path_set: HashSet<usize> = path.clone().into_iter().collect();
+        let mut opt_len = path_set.len();
+        let mut adop_path: Vec<usize> = vec![0; self.t];
+        let mut v_freq: Vec<usize> = vec![0; self.n];
+        for &p in path.iter() {
+            v_freq[p] += 1;
+        }
+        let mut eval = 0.0;
+        for &f in v_freq.iter() {
+            if f == 0 { continue; }
+            eval += (f as f64).ln();
+        }
         
+        println!("# befor opt_len: {}, eval: {}", opt_len, eval);
+        for i in 0..self.t {
+            let before = &t_pathes[i][0];
+            let after = &t_pathes[i][1];
+            let mut tmp_len = opt_len;
+            let mut tmp_v_freq = v_freq.clone();
+
+            for &p in before.iter() {
+                tmp_v_freq[p] -= 1;
+                if tmp_v_freq[p] == 0 {
+                    tmp_len -= 1;
+                }
+            }
+            for &p in after.iter() {
+                tmp_v_freq[p] += 1;
+                if tmp_v_freq[p] == 1 {
+                    tmp_len += 1;
+                }
+            }
+            let mut tmp_eval = 0.0;
+            for &f in tmp_v_freq.iter() {
+                if f == 0 { continue; }
+                tmp_eval += (f as f64).ln();
+            }
+            if (opt_len > tmp_len) || (opt_len == tmp_len && eval > tmp_eval) {
+                opt_len = tmp_len;
+                v_freq = tmp_v_freq;
+                eval = tmp_eval;
+                adop_path[i] = 1;
+            }
+        }
+
+        // 最適化後の経路を再取得
+        let mut path: Vec<usize> = Vec::new();
+        for i in 0..self.t {
+            path.extend(t_pathes[i][adop_path[i]].to_vec());
+        }
+        println!("# after opt_len: {}, eval: {}", opt_len, eval);
 
         path
     }
