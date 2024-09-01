@@ -514,7 +514,7 @@ impl AOptimizer {
                 let si = if a.len()+1 > self.lb { a.len()+1-self.lb } else { 0 };
                 let ei = a.len();
                 let mut b = a[si..ei].to_vec();
-                // b.push(p);
+                b.push(p);
                 let rate = self.calc_rate(p, &b, &p_freq);
                 /*
                 ln_rate += rate.ln();
@@ -572,8 +572,8 @@ impl AOptimizer {
     }
 
     fn calc_rate(&self, p: usize, b: &[usize], p_freq: &Vec<Vec<HashMap<(usize, usize), usize>>>) -> f64 {
-        let mut cnt = 0;
-        let all_cnt = p_freq[p][0].get(&(p, p)).unwrap() * self.lb;
+        let mut cnt = *(p_freq[p][0].get(&(p, p)).unwrap());
+        let all_cnt = cnt * self.lb;
         let mut target: HashMap<usize, (usize, usize)> = HashMap::new();  // 入っているといい都市(key: pl, value: (l, cnt)
         // 最初は1階層目を追加
         for ((_, pl), c) in p_freq[p][1].iter() {
