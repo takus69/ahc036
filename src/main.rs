@@ -60,13 +60,34 @@ impl Solver {
     fn get_path(&mut self) -> Vec<Vec<usize>> {
         let mut pathes: Vec<Vec<usize>> = Vec::new();
 
-        // 経路の最適化
+        // 経路の最適化(bfs)
         let mut t_pathes: Vec<Vec<Vec<usize>>> = vec![];
         let mut from = 0;
         let t_list = self.t_list.clone();
         for to in t_list.iter() {
             let pathes = self.bfs(from, *to);
             t_pathes.push(pathes);
+            from = *to;
+        }
+
+        // BFSですでに通った経路を使用
+        let mut from = 0;
+        let mut all_visited: HashMap<(usize, usize), (usize, Vec<usize>)> = HashMap::new();  // key: (from, to), value: (cnt, path)
+        for (i, to) in t_list.iter().enumerate() {
+            let path = self.bfs2(from, *to, &all_visited);
+            for j1 in 0..(path.len()-1) {
+                for j2 in (j1+1)..path.len() {
+                    let p1 = path[j1];
+                    let p2 = path[j2];
+                    let mut p = path[j1..(j2+1)].to_vec();
+                    let e = all_visited.entry((p1, p2)).or_insert((0, p[1..p.len()].to_vec()));
+                    e.0 += 1;
+                    p.reverse();
+                    let e = all_visited.entry((p2, p1)).or_insert((0, p[1..p.len()].to_vec()));
+                    e.0 += 1;
+                }
+            }
+            t_pathes[i].push(path);
             from = *to;
         }
 
@@ -124,15 +145,18 @@ impl Solver {
         }
 
         for i in 0..self.t {
-            let before = &t_pathes[i][0];
-            let after = &t_pathes[i][1];
+            for j in 1..t_pathes[0].len() {
+                let before = &t_pathes[i][adop_path[i]];
+                let after = &t_pathes[i][j];
+                assert_eq!(before[before.len()-1], after[after.len()-1], "i: {}, j: {}, before: {:?}, after: {:?}", i, j, before, after);
 
-            let ret = change_path(before, after, opt_len, eval, &v_freq);
-            if ret.0 {
-                opt_len = ret.1;
-                eval = ret.2;
-                v_freq = ret.3;
-                adop_path[i] = 1;
+                let ret = change_path(before, after, opt_len, eval, &v_freq);
+                if ret.0 {
+                    opt_len = ret.1;
+                    eval = ret.2;
+                    v_freq = ret.3;
+                    adop_path[i] = j;
+                }
             }
         }
 
@@ -149,7 +173,7 @@ impl Solver {
         let mut temperature = 0.0;
         for i in 0..trial {
             let i = self.rng.gen_range(0..self.t);
-            let j = (adop_path[i]+1) % 2;
+            let j = (adop_path[i]+1) % t_pathes[0].len();
             let before = &t_pathes[i][adop_path[i]];
             let after = &t_pathes[i][j];
             let ret = change_path(before, after, opt_len, eval, &v_freq);
@@ -179,24 +203,7 @@ impl Solver {
         }
         pathes.push(path);
 
-        // 深さ優先探索
-        let mut from = 0;
-        let mut all_visited: HashMap<usize, Vec<usize>> = HashMap::new();
-        for (i, to) in t_list.iter().enumerate() {
-            let mut visited: Vec<bool> = vec![false; self.n];
-            let mut path: Vec<usize> = vec![];
-            self.dfs(from, *to, &mut visited, &mut path, &mut all_visited);
-            for i in 0..(path.len()-1) {
-                let pi = path[i];
-                let pi2 = path[i+1];
-                let e = all_visited.entry(pi).or_insert(vec![]);
-                e.push(pi2);
-                let e = all_visited.entry(pi2).or_insert(vec![]);
-                e.push(pi);
-            }
-            t_pathes[i].push(path);
-            from = *to;
-        }
+        // bfs2の経路
         let mut path: Vec<usize> = Vec::new();
         for i in 0..self.t {
             path.extend(t_pathes[i][t_pathes[0].len()-1].to_vec());
@@ -278,40 +285,57 @@ impl Solver {
         pathes
     }
 
-    fn dist(&self, a: usize, b: usize) -> usize {
-        let (mut ax, mut ay) = self.xy[a];
-        let (mut bx, mut by) = self.xy[b];
-        if ax < bx { std::mem::swap(&mut ax, &mut bx); }
-        if ay < by { std::mem::swap(&mut ay, &mut by); }
-        (ax-bx)*(ax-bx) + (ay-by)*(ay-by)
-    }
-
-    fn dfs(&self, from: usize, to: usize, visited: &mut Vec<bool>, path: &mut Vec<usize>, all_visited: &HashMap<usize, Vec<usize>>) -> bool {
-        if visited[from] { return false; }
+    fn bfs2(&self, from: usize, to: usize, all_visited: &HashMap<(usize, usize), (usize, Vec<usize>)>) -> Vec<usize> {
+        let mut que: VecDeque<Vec<usize>> = VecDeque::new();
+        let mut visited: Vec<bool> = vec![false; self.n];
+        let mut ret: Vec<usize> = Vec::new();
         visited[from] = true;
-        path.push(from);
-        if from == to { return true; }
-        if all_visited.contains_key(&from) {
-            let mut neighbors: Vec<_> = all_visited.get(&from).unwrap().iter().collect();
-            neighbors.iter().filter(|&&&x| self.dist(x, to) < self.dist(from, to));
-            neighbors.sort_by(|&a, &b| self.dist(*a, to).partial_cmp(&self.dist(*b, to)).unwrap());
-            for &v in neighbors.iter() {
-                if visited[*v] { continue; }
-                if self.dfs(*v, to, visited, path, all_visited) {
-                    return true;
+        que.push_back(vec![from]);
+
+        while let Some(path) = que.pop_front() {
+            let &last = path.last().unwrap();
+            if all_visited.contains_key(&(last, to)) {
+                let (cnt, p) = all_visited.get(&(last, to)).unwrap();
+                let mut path = path;
+                path.extend(p);
+                return path[1..path.len()].to_vec();
+            }
+            if last == to {
+                ret = path[1..path.len()].to_vec();
+                break;
+            } else {
+                // すでに使った経路を選択(利用回数が最大の経路)
+                let mut max_cnt: usize = 0;
+                let mut opt_path: Vec<usize> = Vec::new();
+                for &neighbor in self.g.get(&last).unwrap().iter() {
+                    if all_visited.contains_key(&(neighbor, to)) {
+                        let (cnt, p) = all_visited.get(&(neighbor, to)).unwrap();
+                        if *cnt > max_cnt {
+                            max_cnt = *cnt;
+                            opt_path = vec![neighbor];
+                            opt_path.extend(p);
+                        }
+                    }
+                }
+                if max_cnt > 0 {
+                    let mut path = path;
+                    path.extend(opt_path);
+                    return path[1..path.len()].to_vec();
+                }
+
+                // 通常のDFS
+                for &neighbor in self.g.get(&last).unwrap().iter() {
+                    if !visited[neighbor] {
+                        visited[neighbor] = true;
+                        let mut new_path = path.clone();
+                        new_path.push(neighbor);
+                        que.push_back(new_path);
+                    }
                 }
             }
         }
-        let mut neighbors: Vec<_> = self.g[&from].iter().collect();
-        neighbors.sort_by(|&a, &b| self.dist(*a, to).partial_cmp(&self.dist(*b, to)).unwrap());
-        for &v in neighbors.iter() {
-            if visited[*v] { continue; }
-            if self.dfs(*v, to, visited, path, all_visited) {
-                return true;
-            }
-        }
-        path.pop();
-        false
+
+        ret
     }
 
     fn solve(&mut self) {
@@ -351,7 +375,7 @@ impl Solver {
         let path = &opt_path;
         self.optimize_a(path);
         self.lt = path.len();
-        // println!("# path: {:?}", path);
+        println!("# path: {:?}", path);
         for (i, p) in path.iter().enumerate() {
             let target = path[i..path.len().min(i+self.lb)].to_vec();
             if !self.can_move(p, &self.b) {
@@ -518,7 +542,7 @@ impl AOptimizer {
 
         // v9の改善
         let mut p_freq: Vec<Vec<HashMap<(usize, usize), usize>>> = vec![vec![HashMap::new(); self.lb]; self.n];  // [P][l][pre] = (cnt, Pl, l)
-        println!("# path len: {}", path.len());
+        println!("# path len: {}, path_set len: {}", path.len(), path_set.len());
         // println!("# path: {:?}", path);
         for (i, p) in path[0..(path.len()-1)].iter().enumerate() {
             let mut pre = *p;
