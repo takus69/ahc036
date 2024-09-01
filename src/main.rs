@@ -469,8 +469,8 @@ impl AOptimizer {
         let path = &self.path;
         let path_set: HashSet<usize> = path.clone().into_iter().collect();  // 最初の都市がない経路から作成
 
-        // v9の改善
-        let mut p_freq: Vec<Vec<HashMap<(usize, usize), usize>>> = vec![vec![HashMap::new(); self.lb]; self.n];  // [P][l][pre] = (cnt, Pl, l)
+        // v9の改善(都市の繋がりの件数を取得)
+        let mut p_freq: Vec<Vec<HashMap<(usize, usize), usize>>> = vec![vec![HashMap::new(); self.lb]; self.n];  // [P][l][(pre, pl)] = cnt
         println!("# path len: {}, path_set len: {}", path.len(), path_set.len());
         // println!("# path: {:?}", path);
         for (i, p) in path[0..(path.len()-1)].iter().enumerate() {
@@ -485,7 +485,7 @@ impl AOptimizer {
         let p = path[path.len()-1];
         let _ = p_freq[p][0].entry((p, p)).or_insert(1);
 
-        // 配列Aの1個目を追加
+        // 配列Aの1個目を追加(一番最初の都市に対して最適な配列を設置)
         let mut a: Vec<usize> = Vec::new();
         let mut heap: BinaryHeap<(usize, usize, usize, usize)> = BinaryHeap::new();  // (cnt, pre, pl, l)
         let mut added: Vec<bool> = vec![false; self.n];
@@ -506,33 +506,29 @@ impl AOptimizer {
 
         // 以降は後ろLBの範囲が最大となる、まだ追加していない都市を追加していく
         while a.len() < path_set.len() {
-            let mut opt_rate = 0.0;
+            let mut opt_rate = f64::MIN; 
             let mut opt_p = usize::MAX;
             for p in 0..self.n {
                 if !path_set.contains(&p) || added[p] { continue; }
-                let mut cnt = 0;
-                let all_cnt = p_freq[p][0].get(&(p, p)).unwrap() * self.lb;
-                let mut target: HashMap<usize, (usize, usize)> = HashMap::new();  // 入っているといい都市(key: pl, value: (l, cnt)
-                for ((_, pl), c) in p_freq[p][1].iter() {
-                    target.insert(*pl, (1, *c));
+                let mut ln_rate = 0.0;
+                let si = a.len()-self.lb;
+                let ei = a.len();
+                let mut b = a[si..ei].to_vec();
+                // b.push(p);
+                let rate = self.calc_rate(p, &b, &p_freq);
+                /*
+                ln_rate += rate.ln();
+                for i in 0..(self.lb-1) {
+                    if self.lb + i > self.la { break; }
+                    let pi = a[si+i];
+                    b.pop();
+                    b.push(pi);
+                    let rate = self.calc_rate(pi, &b, &p_freq);
+                    ln_rate += rate.ln();
                 }
-                let start = if a.len() > self.lb { a.len() - self.lb } else { 0 };
-                for i in start..a.len() {
-                    let ai = a[i];
-                    if target.contains_key(&ai) {
-                        let (l, c) = *target.get(&ai).unwrap();
-                        cnt += c;
-                        if l == self.lb-1 { continue; }
-                        for ((pre, pl), c) in p_freq[p][l+1].iter() {
-                            if pre != &ai { continue; }
-                            let e = target.entry(*pl).or_insert((l+1, *c));
-                            e.1 += c;
-                        }
-                    }
-                }
-                let tmp = cnt as f64 / all_cnt as f64;
-                if opt_rate <= tmp {
-                    opt_rate = tmp;
+                */
+                if opt_rate <= rate {
+                    opt_rate = rate ;
                     opt_p = p;
                 }
             }
@@ -573,6 +569,31 @@ impl AOptimizer {
             assert!(a.contains(i), "# not found: {}", i);
         }
         self.a = a;
+    }
+
+    fn calc_rate(&self, p: usize, b: &[usize], p_freq: &Vec<Vec<HashMap<(usize, usize), usize>>>) -> f64 {
+        let mut cnt = 0;
+        let all_cnt = p_freq[p][0].get(&(p, p)).unwrap() * self.lb;
+        let mut target: HashMap<usize, (usize, usize)> = HashMap::new();  // 入っているといい都市(key: pl, value: (l, cnt)
+        // 最初は1階層目を追加
+        for ((_, pl), c) in p_freq[p][1].iter() {
+            target.insert(*pl, (1, *c));
+        }
+        for i in 0..b.len() {
+            let bi = b[i];
+            if target.contains_key(&bi) {
+                let (l, c) = *target.get(&bi).unwrap();
+                cnt += c;
+                if l == self.lb-1 { continue; }
+                for ((pre, pl), c) in p_freq[p][l+1].iter() {
+                    if pre != &bi { continue; }
+                    let e = target.entry(*pl).or_insert((l+1, *c));
+                    e.1 += c;
+                }
+            }
+        }
+
+        cnt as f64 / all_cnt as f64
     }
 
     fn get_path_freq(&mut self) {
