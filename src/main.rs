@@ -487,6 +487,15 @@ impl AOptimizer {
         let p = path[path.len()-1];
         let _ = p_freq[p][0].entry((p, p)).or_insert(1);
 
+        let mut p_list: Vec<(usize, usize)> = Vec::new();  // 訪問する都市を回数順で保持
+        for p in 0..self.n {
+            if p_freq[p][0].contains_key(&(p, p)) {
+                let cnt = p_freq[p][0].get(&(p, p)).unwrap();
+                p_list.push((p, *cnt));
+            }
+        }
+        p_list.sort_by(|&a, &b| b.1.cmp(&a.1));
+
         // 配列Aの1個目を追加(一番最初の都市に対して最適な配列を設置)
         let mut a: Vec<usize> = Vec::new();
         let mut heap: BinaryHeap<(usize, usize, usize, usize)> = BinaryHeap::new();  // (cnt, pre, pl, l)
@@ -510,23 +519,24 @@ impl AOptimizer {
         while a.len() < path_set.len() {
             let mut opt_rate = f64::MIN; 
             let mut opt_p = usize::MAX;
-            for p in 0..self.n {
-                if !path_set.contains(&p) || added[p] { continue; }
+            for (p, _) in p_list.iter() {
+                if !path_set.contains(p) || added[*p] { continue; }
                 let mut ln_rate = 0.0;
                 let si = if a.len()+1 > self.lb { a.len()+1-self.lb } else { 0 };
                 let ei = a.len();
                 let mut b = a[si..ei].to_vec();
-                b.push(p);
-                let rate = self.calc_rate(p, &b, &p_freq);
+                b.push(*p);
+                let rate = self.calc_rate(*p, &b, &p_freq);
                 ln_rate += rate.ln();
+                /*
                 for i in si.max(a.len()-5)..a.len() {  // TLEになるため最後5つのみを確認
                     let pi = a[i];
                     let rate = self.calc_rate(pi, &b, &p_freq);
                     ln_rate += rate.ln();
-                }
+                }*/
                 if opt_rate <= ln_rate {
                     opt_rate = ln_rate ;
-                    opt_p = p;
+                    opt_p = *p;
                 }
             }
             a.push(opt_p);
