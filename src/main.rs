@@ -511,7 +511,7 @@ impl AOptimizer {
             for p in 0..self.n {
                 if !path_set.contains(&p) || added[p] { continue; }
                 let mut ln_rate = 0.0;
-                let si = a.len()-self.lb;
+                let si = if a.len()+1 > self.lb { a.len()+1-self.lb } else { 0 };
                 let ei = a.len();
                 let mut b = a[si..ei].to_vec();
                 // b.push(p);
