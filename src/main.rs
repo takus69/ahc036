@@ -179,6 +179,21 @@ impl Solver {
         }
         pathes.push(path);
 
+        // 深さ優先探索
+        let mut from = 0;
+        for (i, to) in t_list.iter().enumerate() {
+            let mut visited: Vec<bool> = vec![false; self.n];
+            let mut path: Vec<usize> = vec![];
+            self.dfs(from, *to, &mut visited, &mut path);
+            t_pathes[i].push(path);
+            from = *to;
+        }
+        let mut path: Vec<usize> = Vec::new();
+        for i in 0..self.t {
+            path.extend(t_pathes[i][t_pathes[0].len()-1].to_vec());
+        }
+        pathes.push(path);
+
         pathes
     }
 
@@ -252,6 +267,31 @@ impl Solver {
         }
 
         pathes
+    }
+
+    fn dist(&self, a: usize, b: usize) -> usize {
+        let (mut ax, mut ay) = self.xy[a];
+        let (mut bx, mut by) = self.xy[b];
+        if ax < bx { std::mem::swap(&mut ax, &mut bx); }
+        if ay < by { std::mem::swap(&mut ay, &mut by); }
+        (ax-bx)*(ax-bx) + (ay-by)*(ay-by)
+    }
+
+    fn dfs(&self, from: usize, to: usize, visited: &mut Vec<bool>, path: &mut Vec<usize>) -> bool {
+        if visited[from] { return false; }
+        visited[from] = true;
+        path.push(from);
+        if from == to { return true; }
+        let mut neighbors: Vec<_> = self.g[&from].iter().collect();
+        neighbors.sort_by(|&a, &b| self.dist(*a, to).partial_cmp(&self.dist(*b, to)).unwrap());
+        for &v in neighbors.iter() {
+            if visited[*v] { continue; }
+            if self.dfs(*v, to, visited, path) {
+                return true;
+            }
+        }
+        path.pop();
+        false
     }
 
     fn solve(&mut self) {
@@ -503,7 +543,8 @@ impl AOptimizer {
                 for ((_, pl), c) in p_freq[p][1].iter() {
                     target.insert(*pl, (1, *c));
                 }
-                for i in (a.len()-self.lb)..a.len() {
+                let start = if a.len() > self.lb { a.len() - self.lb } else { 0 };
+                for i in start..a.len() {
                     let ai = a[i];
                     if target.contains_key(&ai) {
                         let (l, c) = *target.get(&ai).unwrap();
