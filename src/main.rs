@@ -181,10 +181,19 @@ impl Solver {
 
         // 深さ優先探索
         let mut from = 0;
+        let mut all_visited: HashMap<usize, Vec<usize>> = HashMap::new();
         for (i, to) in t_list.iter().enumerate() {
             let mut visited: Vec<bool> = vec![false; self.n];
             let mut path: Vec<usize> = vec![];
-            self.dfs(from, *to, &mut visited, &mut path);
+            self.dfs(from, *to, &mut visited, &mut path, &mut all_visited);
+            for i in 0..(path.len()-1) {
+                let pi = path[i];
+                let pi2 = path[i+1];
+                let e = all_visited.entry(pi).or_insert(vec![]);
+                e.push(pi2);
+                let e = all_visited.entry(pi2).or_insert(vec![]);
+                e.push(pi);
+            }
             t_pathes[i].push(path);
             from = *to;
         }
@@ -277,16 +286,27 @@ impl Solver {
         (ax-bx)*(ax-bx) + (ay-by)*(ay-by)
     }
 
-    fn dfs(&self, from: usize, to: usize, visited: &mut Vec<bool>, path: &mut Vec<usize>) -> bool {
+    fn dfs(&self, from: usize, to: usize, visited: &mut Vec<bool>, path: &mut Vec<usize>, all_visited: &HashMap<usize, Vec<usize>>) -> bool {
         if visited[from] { return false; }
         visited[from] = true;
         path.push(from);
         if from == to { return true; }
+        if all_visited.contains_key(&from) {
+            let mut neighbors: Vec<_> = all_visited.get(&from).unwrap().iter().collect();
+            neighbors.iter().filter(|&&&x| self.dist(x, to) < self.dist(from, to));
+            neighbors.sort_by(|&a, &b| self.dist(*a, to).partial_cmp(&self.dist(*b, to)).unwrap());
+            for &v in neighbors.iter() {
+                if visited[*v] { continue; }
+                if self.dfs(*v, to, visited, path, all_visited) {
+                    return true;
+                }
+            }
+        }
         let mut neighbors: Vec<_> = self.g[&from].iter().collect();
         neighbors.sort_by(|&a, &b| self.dist(*a, to).partial_cmp(&self.dist(*b, to)).unwrap());
         for &v in neighbors.iter() {
             if visited[*v] { continue; }
-            if self.dfs(*v, to, visited, path) {
+            if self.dfs(*v, to, visited, path, all_visited) {
                 return true;
             }
         }
