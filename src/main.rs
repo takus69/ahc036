@@ -203,12 +203,14 @@ impl Solver {
         }
         pathes.push(path);
 
-        // bfs2の経路
+        // bfs2の経路(基本結果が悪いので削除)
+        /*
         let mut path: Vec<usize> = Vec::new();
         for i in 0..self.t {
             path.extend(t_pathes[i][t_pathes[0].len()-1].to_vec());
         }
         pathes.push(path);
+        */
 
         pathes
     }
@@ -330,7 +332,7 @@ impl Solver {
         let pathes = self.get_path();
 
         let mut opt_score = usize::MAX;
-        let mut opt_path: Vec<usize> = Vec::new();
+        let mut opt_path: Vec<usize> = pathes[0].clone();
         for path in pathes.iter() {
             self.clear();
             // 最適な経路で実施
@@ -516,19 +518,14 @@ impl AOptimizer {
                 let mut b = a[si..ei].to_vec();
                 b.push(p);
                 let rate = self.calc_rate(p, &b, &p_freq);
-                /*
                 ln_rate += rate.ln();
-                for i in 0..(self.lb-1) {
-                    if self.lb + i > self.la { break; }
-                    let pi = a[si+i];
-                    b.pop();
-                    b.push(pi);
+                for i in si.max(a.len()-5)..a.len() {  // TLEになるため最後5つのみを確認
+                    let pi = a[i];
                     let rate = self.calc_rate(pi, &b, &p_freq);
                     ln_rate += rate.ln();
                 }
-                */
-                if opt_rate <= rate {
-                    opt_rate = rate ;
+                if opt_rate <= ln_rate {
+                    opt_rate = ln_rate ;
                     opt_p = p;
                 }
             }
