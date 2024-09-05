@@ -212,7 +212,178 @@ impl Solver {
         pathes.push(path);
         */
 
+        let path = self.get_path2();
+        pathes.push(path);
+
         pathes
+    }
+
+    fn get_path2(&self) -> Vec<usize> {
+        let mut path: Vec<usize> = Vec::new();
+        // 大きい×の幹線道路を作り、幹線道路から脇道を作る
+
+        // 端の4点を取得する
+        let base: Vec<(usize, usize)> = vec![(0, 0), (1000, 0), (0, 1000), (1000, 1000)];
+        let mut p_base: Vec<usize> = vec![usize::MAX; 4];
+        let mut r2: Vec<usize> = vec![usize::MAX; 4];
+
+        for (i, (x, y)) in self.xy.iter().enumerate() {
+            for (j, (bx, by)) in base.iter().enumerate() {
+                let rr = (x.max(bx)-x.min(bx))*(x.max(bx)-x.min(bx)) + (y.max(by)-y.min(by))*(y.max(by)-y.min(by));
+                if r2[j] > rr {
+                    r2[j] = rr;
+                    p_base[j] = i;
+                }
+            }
+        }
+
+        // 右上から左下
+        let mut main_link: HashMap<usize, Vec<usize>> = HashMap::new();
+        let tmp = self.bfs3(p_base[0], p_base[3]);
+        for i in 0..tmp.len()-1 {
+            let p1 = tmp[i];
+            let p2 = tmp[i+1];
+            let e = main_link.entry(p1).or_insert(vec![]);
+            e.push(p2);
+            let e = main_link.entry(p2).or_insert(vec![]);
+            e.push(p1);
+        }
+
+        // 右下から左上
+        let tmp = self.bfs3(p_base[1], p_base[2]);
+        // 2本の幹線道路が繋がっていない場合は一番近い2点をつなげる
+        let mut flg = false;
+        for pi in tmp.iter() {
+            if main_link.contains_key(pi) {
+                flg = true;
+                break;
+            }
+        }
+        println!("flg: {}", flg);
+        if !flg {
+            let mut nearest_path = vec![];
+            let mut min_len = usize::MAX;
+            for &p1 in tmp.iter() {
+                for &p2 in main_link.keys() {
+                    let path = self.bfs3(p1, p2);
+                    if min_len > path.len() {
+                        min_len = path.len();
+                        nearest_path = path;
+                    }
+                }
+            }
+            for i in 0..nearest_path.len()-1 {
+                let p1 = tmp[i];
+                let p2 = tmp[i+1];
+                let e = main_link.entry(p1).or_insert(vec![]);
+                e.push(p2);
+                let e = main_link.entry(p2).or_insert(vec![]);
+                e.push(p1);
+            }
+        }
+
+        for i in 0..tmp.len()-1 {
+            let p1 = tmp[i];
+            let p2 = tmp[i+1];
+            let e = main_link.entry(p1).or_insert(vec![]);
+            e.push(p2);
+            let e = main_link.entry(p2).or_insert(vec![]);
+            e.push(p1);
+        }
+
+        let mut from = 0;
+        for &ti in self.t_list.iter() {
+            let to = ti;
+
+            let path1 = self.bfs_to_main(from, &main_link);
+            let mut path3 = self.bfs_to_main(to, &main_link);
+            let path2 = self.bfs_in_main(path1[path1.len()-1], path3[path3.len()-1], &main_link);
+            let mut tmp = path1[1..path1.len()].to_vec();
+            tmp.extend(path2[1..path2.len()].to_vec());
+            path3.reverse();
+            tmp.extend(path3[1..path3.len()].to_vec());
+
+            path.extend(tmp);
+
+            from = to;
+        }
+
+        path
+    }
+
+    fn bfs3(&self, from: usize, to: usize) -> Vec<usize> {
+        let mut que: VecDeque<Vec<usize>> = VecDeque::new();
+        let mut visited: Vec<bool> = vec![false; self.n];
+        visited[from] = true;
+        que.push_back(vec![from]);
+
+        while let Some(path) = que.pop_front() {
+            let &last = path.last().unwrap();
+            if last == to {
+                return path;
+            } else {
+                for &neighbor in self.g.get(&last).unwrap().iter() {
+                    if !visited[neighbor] {
+                        visited[neighbor] = true;
+                        let mut new_path = path.clone();
+                        new_path.push(neighbor);
+                        que.push_back(new_path);
+                    }
+                }
+            }
+        }
+
+        vec![]
+    }
+
+    fn bfs_to_main(&self, from: usize, main_link: &HashMap<usize, Vec<usize>>) -> Vec<usize> {
+        let mut que: VecDeque<Vec<usize>> = VecDeque::new();
+        let mut visited: Vec<bool> = vec![false; self.n];
+        visited[from] = true;
+        que.push_back(vec![from]);
+
+        while let Some(path) = que.pop_front() {
+            let &last = path.last().unwrap();
+            if main_link.contains_key(&last) {
+                return path;
+            } else {
+                for &neighbor in self.g.get(&last).unwrap().iter() {
+                    if !visited[neighbor] {
+                        visited[neighbor] = true;
+                        let mut new_path = path.clone();
+                        new_path.push(neighbor);
+                        que.push_back(new_path);
+                    }
+                }
+            }
+        }
+
+        vec![]
+    }
+
+    fn bfs_in_main(&self, from: usize, to: usize, main_link: &HashMap<usize, Vec<usize>>) -> Vec<usize> {
+        let mut que: VecDeque<Vec<usize>> = VecDeque::new();
+        let mut visited: Vec<bool> = vec![false; self.n];
+        visited[from] = true;
+        que.push_back(vec![from]);
+
+        while let Some(path) = que.pop_front() {
+            let &last = path.last().unwrap();
+            if last == to {
+                return path;
+            } else {
+                for &neighbor in main_link.get(&last).unwrap().iter() {
+                    if !visited[neighbor] {
+                        visited[neighbor] = true;
+                        let mut new_path = path.clone();
+                        new_path.push(neighbor);
+                        que.push_back(new_path);
+                    }
+                }
+            }
+        }
+
+        vec![]
     }
 
     fn optimize_a(&mut self, path: &Vec<usize>) {
