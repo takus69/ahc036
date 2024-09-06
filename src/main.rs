@@ -212,14 +212,14 @@ impl Solver {
         pathes.push(path);
         */
 
+        // pathes = Vec::new();
         let path = self.get_path2();
         pathes.push(path);
 
         pathes
     }
 
-    fn get_path2(&self) -> Vec<usize> {
-        let mut path: Vec<usize> = Vec::new();
+    fn get_path2(&mut self) -> Vec<usize> {
         // 大きい×の幹線道路を作り、幹線道路から脇道を作る
 
         // 端の4点を取得する
@@ -237,6 +237,26 @@ impl Solver {
             }
         }
 
+        let mut opt_path = self.make_main(&p_base);
+
+        let trial = 100;
+        for i in 0..trial {
+            let mut p_base2 = p_base.clone();
+            let ti = self.rng.gen_range(0..self.t);
+            if p_base2.contains(&ti) { continue; }
+            p_base2[i%4] = ti;
+            let path = self.make_main(&p_base2);
+            if opt_path.len() > path.len() {
+                opt_path = path;
+                p_base = p_base2;
+            }
+        }
+
+
+        opt_path
+    }
+
+    fn make_main(&self, p_base: &Vec<usize>) -> Vec<usize> {
         // 右上から左下
         let mut main_link: HashMap<usize, Vec<usize>> = HashMap::new();
         let tmp = self.bfs3(p_base[0], p_base[3]);
@@ -259,7 +279,6 @@ impl Solver {
                 break;
             }
         }
-        println!("flg: {}", flg);
         if !flg {
             let mut nearest_path = vec![];
             let mut min_len = usize::MAX;
@@ -273,8 +292,8 @@ impl Solver {
                 }
             }
             for i in 0..nearest_path.len()-1 {
-                let p1 = tmp[i];
-                let p2 = tmp[i+1];
+                let p1 = nearest_path[i];
+                let p2 = nearest_path[i+1];
                 let e = main_link.entry(p1).or_insert(vec![]);
                 e.push(p2);
                 let e = main_link.entry(p2).or_insert(vec![]);
@@ -291,6 +310,7 @@ impl Solver {
             e.push(p1);
         }
 
+        let mut path: Vec<usize> = Vec::new();
         let mut from = 0;
         for &ti in self.t_list.iter() {
             let to = ti;
@@ -666,6 +686,7 @@ impl AOptimizer {
             }
         }
         p_list.sort_by(|&a, &b| b.1.cmp(&a.1));
+        println!("# 1");
 
         // 配列Aの1個目を追加(一番最初の都市に対して最適な配列を設置)
         let mut a: Vec<usize> = Vec::new();
@@ -673,7 +694,10 @@ impl AOptimizer {
         let mut added: Vec<bool> = vec![false; self.n];
         let p = path[0];
         heap.push((*p_freq[p][0].get(&(p, p)).unwrap(), p, p, 0));
+        let mut loop_cnt = 0;
         while a.len() < self.lb && !heap.is_empty() {
+            loop_cnt += 1;
+            if loop_cnt > 100 { break; }
             let (_, _, pl, l) = heap.pop().unwrap();
             if !added[pl] {
                 a.push(pl);
@@ -685,6 +709,7 @@ impl AOptimizer {
                 heap.push((*cnt, pl, *pl2, l+1));
             }
         }
+        println!("# 2");
 
         // 以降は後ろLBの範囲が最大となる、まだ追加していない都市を追加していく
         while a.len() < path_set.len() {
@@ -714,6 +739,7 @@ impl AOptimizer {
             added[opt_p] = true;
         }
         // println!("# a: {:?}", a);
+        println!("# 3");
 
         // 残りを埋める
         let mut max_freq: BinaryHeap<(usize, usize)> = BinaryHeap::new();
@@ -726,7 +752,10 @@ impl AOptimizer {
             let mut added: Vec<bool> = vec![false; self.n];
             heap.push((*p_freq[p][0].get(&(p, p)).unwrap(), p, p, 0));
             let mut cnt = 0;
+            let mut loop_cnt = 0;
             while cnt < self.lb && !heap.is_empty() {
+                loop_cnt += 1;
+                if loop_cnt > 100 { break; }
                 let (_, _, pl, l) = heap.pop().unwrap();
                 if !added[pl] {
                     a.push(pl);
@@ -740,8 +769,8 @@ impl AOptimizer {
                     heap.push((*cnt, pl, *pl2, l+1));
                 }
             }
-
         }
+        println!("# 4");
 
         for i in path_set.iter() {
             assert!(a.contains(i), "# not found: {}", i);
