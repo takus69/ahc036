@@ -2,6 +2,7 @@ use proconio::input;
 use std::collections::{HashMap, VecDeque, BinaryHeap, HashSet};
 use rand::{Rng, SeedableRng};
 use rand::rngs::StdRng;
+use std::time::Instant;
 
 struct Solver {
     n: usize,
@@ -58,7 +59,9 @@ impl Solver {
     }
 
     fn get_path(&mut self) -> Vec<Vec<usize>> {
+        let start = Instant::now();
         let mut pathes: Vec<Vec<usize>> = Vec::new();
+        println!("# get_path start: {}", start.elapsed().as_secs_f64());
 
         // 経路の最適化(bfs)
         let mut t_pathes: Vec<Vec<Vec<usize>>> = vec![];
@@ -90,6 +93,7 @@ impl Solver {
             t_pathes[i].push(path);
             from = *to;
         }
+        println!("# get_path bfs: {}", start.elapsed().as_secs_f64());
 
         // 最短経路を取得
         let mut path: Vec<usize> = Vec::new();
@@ -111,7 +115,6 @@ impl Solver {
             if f == 0 { continue; }
             eval += (f as f64).ln();
         }
-        
         println!("# befor opt_len: {}, eval: {}", opt_len, eval);
 
         fn change_path(before:  &Vec<usize>, after: &Vec<usize>, opt_len: usize, eval: f64, v_freq: &Vec<usize>) -> (bool, usize, f64, Vec<usize>) {
@@ -167,6 +170,7 @@ impl Solver {
         }
         pathes.push(path);
         println!("# after opt_len: {}, eval: {}", opt_len, eval);
+        println!("# get_path opt path: {}", start.elapsed().as_secs_f64());
 
         // 焼きなましで最適化
         let trial = 1000;
@@ -195,6 +199,7 @@ impl Solver {
         }
         pathes.push(path);
         println!("# after2 opt_len: {}, eval: {}", opt_len, eval);
+        println!("# get_path opt2 path: {}", start.elapsed().as_secs_f64());
         
         // 1の方の経路
         let mut path: Vec<usize> = Vec::new();
@@ -215,6 +220,7 @@ impl Solver {
         // pathes = Vec::new();
         let path = self.get_path2();
         pathes.push(path);
+        println!("# get_path get_path2: {}", start.elapsed().as_secs_f64());
 
         pathes
     }
@@ -240,7 +246,10 @@ impl Solver {
         let mut opt_path = self.make_main(&p_base);
 
         let trial = 100;
+        let time_up = 10.0 / self.lb as f64;
+        let start = Instant::now();
         for i in 0..trial {
+            if start.elapsed().as_secs_f64() > time_up { println!("# get_path2 break: {}, loop: {}", start.elapsed().as_secs_f64(), i); break; }
             let mut p_base2 = p_base.clone();
             let ti = self.rng.gen_range(0..self.t);
             if p_base2.contains(&ti) { continue; }
@@ -520,14 +529,17 @@ impl Solver {
     }
 
     fn solve(&mut self) {
+        let start = Instant::now();
         let pathes = self.get_path();
 
         let mut opt_score = usize::MAX;
         let mut opt_path: Vec<usize> = pathes[0].clone();
         for path in pathes.iter() {
+            println!("# elapsed path loop: {}", start.elapsed().as_secs_f64());
             self.clear();
             // 最適な経路で実施
             self.optimize_a(path);
+            println!("# elapsed optimize_a: {}", start.elapsed().as_secs_f64());
             self.lt = path.len();
             // println!("# path: {:?}", path);
             for (i, p) in path.iter().enumerate() {
@@ -547,6 +559,7 @@ impl Solver {
                 opt_path = path.clone();
             }
             println!("# match_rate: {}, score: {}", match_rate, score);
+            println!("# elapsed match_rate: {}", start.elapsed().as_secs_f64());
         }
 
         // 最適な経路で実施
@@ -565,6 +578,7 @@ impl Solver {
             }
             self.r#move(p);
         }
+        println!("# elapsed end solve: {}", start.elapsed().as_secs_f64());
 
     }
 
@@ -659,8 +673,10 @@ impl AOptimizer {
 
     fn init_a(&mut self) {
         // 配列Aとpathの一致率が一番よくなるように最適化する
+        let start = Instant::now();
         let path = &self.path;
         let path_set: HashSet<usize> = path.clone().into_iter().collect();  // 最初の都市がない経路から作成
+        let max_loop_cnt = 100;
 
         // v9の改善(都市の繋がりの件数を取得)
         let mut p_freq: Vec<Vec<HashMap<(usize, usize), usize>>> = vec![vec![HashMap::new(); self.lb]; self.n];  // [P][l][(pre, pl)] = cnt
@@ -686,7 +702,6 @@ impl AOptimizer {
             }
         }
         p_list.sort_by(|&a, &b| b.1.cmp(&a.1));
-        println!("# 1");
 
         // 配列Aの1個目を追加(一番最初の都市に対して最適な配列を設置)
         let mut a: Vec<usize> = Vec::new();
@@ -697,7 +712,8 @@ impl AOptimizer {
         let mut loop_cnt = 0;
         while a.len() < self.lb && !heap.is_empty() {
             loop_cnt += 1;
-            if loop_cnt > 100 { break; }
+            if loop_cnt > max_loop_cnt { break; }
+            if start.elapsed().as_secs_f64() > 0.1 { println!("# elapsed1: {}", start.elapsed().as_secs_f64()); break; }
             let (_, _, pl, l) = heap.pop().unwrap();
             if !added[pl] {
                 a.push(pl);
@@ -709,7 +725,6 @@ impl AOptimizer {
                 heap.push((*cnt, pl, *pl2, l+1));
             }
         }
-        println!("# 2");
 
         // 以降は後ろLBの範囲が最大となる、まだ追加していない都市を追加していく
         while a.len() < path_set.len() {
@@ -739,7 +754,6 @@ impl AOptimizer {
             added[opt_p] = true;
         }
         // println!("# a: {:?}", a);
-        println!("# 3");
 
         // 残りを埋める
         let mut max_freq: BinaryHeap<(usize, usize)> = BinaryHeap::new();
@@ -753,9 +767,10 @@ impl AOptimizer {
             heap.push((*p_freq[p][0].get(&(p, p)).unwrap(), p, p, 0));
             let mut cnt = 0;
             let mut loop_cnt = 0;
+            if start.elapsed().as_secs_f64() > 0.5 { println!("# elapsed2: {}", start.elapsed().as_secs_f64()); break; }
             while cnt < self.lb && !heap.is_empty() {
                 loop_cnt += 1;
-                if loop_cnt > 100 { break; }
+                if loop_cnt > max_loop_cnt { break; }
                 let (_, _, pl, l) = heap.pop().unwrap();
                 if !added[pl] {
                     a.push(pl);
@@ -770,12 +785,24 @@ impl AOptimizer {
                 }
             }
         }
-        println!("# 4");
+
+        // 時間切れの場合の残り埋め
+        let mut i = 0;
+        for i in path_set.iter() {
+            if !a.contains(i) {
+                a.push(*i);
+            }
+        }
+        while a.len() < self.la {
+            a.push(path[i]);
+            i += 1;
+        }
 
         for i in path_set.iter() {
             assert!(a.contains(i), "# not found: {}", i);
         }
         self.a = a;
+        println!("# init_a elapsed time: {}", start.elapsed().as_secs_f64());
     }
 
     fn calc_rate(&self, p: usize, b: &[usize], p_freq: &Vec<Vec<HashMap<(usize, usize), usize>>>) -> f64 {
